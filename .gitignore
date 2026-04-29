@@ -5,4 +5,11 @@ build/
 coverage.out
 *.exe
 *.test
+.env
+.env.*
+*.log
+.idea/
+.vscode/
+*.swp
+*~
 
