@@ -18,11 +18,6 @@ jobs:
             goos: linux
             goarch: amd64
             binary: beddel-desk-linux-amd64
-            deps: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
-          - os: macos-13
-            goos: darwin
-            goarch: amd64
-            binary: beddel-desk-darwin-amd64
           - os: macos-latest
             goos: darwin
             goarch: arm64
@@ -42,7 +37,7 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: ${{ matrix.deps }}
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
 
       - name: Build
         env:
@@ -62,20 +57,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
       - uses: actions/download-artifact@v4
         with:
           name: beddel-desk-linux-amd64
           path: .
 
-      - name: Install nfpm
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-
       - name: Build .deb
         run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           chmod +x beddel-desk-linux-amd64
           VERSION="${GITHUB_REF_NAME#v}"
           sed "s/__VERSION__/${VERSION}/" nfpm.yaml > nfpm-resolved.yaml
-          nfpm package -f nfpm-resolved.yaml -p deb -t beddel-desk_${VERSION}_amd64.deb
+          nfpm package -f nfpm-resolved.yaml -p deb -t "beddel-desk_${VERSION}_amd64.deb"
 
       - uses: actions/upload-artifact@v4
         with:
