@@ -2,7 +2,7 @@ package version
 
 const (
 	Name    = "beddel-desk"
-	Version = "0.1.0-dev"
+	Version = "0.1.0"
 )
 
 func String() string {
