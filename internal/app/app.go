@@ -426,6 +426,12 @@ func (a *App) openSession(backendName, sessionPath string) error {
 	if info.IsDir() {
 		return fmt.Errorf("%s is a directory, expected a session file", sessionPath)
 	}
+	if !filepath.IsAbs(sessionPath) {
+		return fmt.Errorf("session path must be absolute: %s", sessionPath)
+	}
+	if strings.Contains(sessionPath, "://") {
+		return fmt.Errorf("session path must not contain a URI scheme: %s", sessionPath)
+	}
 	if err := openPath(sessionPath); err != nil {
 		return err
 	}

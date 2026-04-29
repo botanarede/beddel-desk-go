@@ -99,10 +99,12 @@ func (c *AppConfig) UpsertBackend(originalName string, b Backend) error {
 	if err := ValidateBackend(b); err != nil {
 		return err
 	}
-	for i, existing := range c.Backends {
+	for _, existing := range c.Backends {
 		if existing.Name == b.Name && existing.Name != originalName {
 			return fmt.Errorf("backend %q already exists", b.Name)
 		}
+	}
+	for i, existing := range c.Backends {
 		if existing.Name == originalName {
 			c.Backends[i] = b
 			return nil
