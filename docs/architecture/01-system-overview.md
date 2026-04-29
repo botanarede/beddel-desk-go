@@ -20,7 +20,11 @@ cmd/beddel-desk/
   main.go
 
 internal/
-  version/
+  app/ (desktop UI wiring)
+  config/ (backend configuration)
+  search/ (on-demand local search)
+  storage/ (favorites and recent references)
+  version/ (version string)
 ```
 
 This repository starts with a minimal bootstrap structure. Additional packages should be
