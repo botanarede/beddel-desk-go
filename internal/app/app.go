@@ -4,6 +4,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,6 +108,7 @@ func (a *App) homeView() fyne.CanvasObject {
 }
 
 func (a *App) showSearch() {
+	log.Println("showSearch: opening window")
 	win := a.fyneApp.NewWindow("Search - Beddel Desk")
 	win.Resize(fyne.NewSize(1100, 720))
 
@@ -180,22 +182,34 @@ func (a *App) showSearch() {
 			Favorites:   favs,
 		}
 		go func() {
+			log.Println("search: starting")
 			resp, err := search.Search(q)
-			searchButton.Enable()
-			if err != nil {
-				status.SetText(err.Error())
-				return
+			log.Printf("search: done, %d results, err=%v", len(resp.Results), err)
+
+			// Build cards outside UI thread
+			var cards []fyne.CanvasObject
+			if err == nil {
+				for _, result := range resp.Results {
+					cards = append(cards, a.resultCard(result, win))
+				}
 			}
-			for _, result := range resp.Results {
-				resultsBox.Add(a.resultCard(result, win))
-			}
-			status.SetText(fmt.Sprintf("%d result(s)", len(resp.Results)))
-			if len(resp.Warnings) > 0 {
-				warnings.SetText("Warnings:\n" + strings.Join(resp.Warnings, "\n"))
-			}
-			if len(resp.Results) == 0 && len(resp.Warnings) == 0 {
-				status.SetText("No results.")
-			}
+
+			fyne.Do(func() {
+				searchButton.Enable()
+				if err != nil {
+					status.SetText(err.Error())
+					return
+				}
+				resultsBox.Objects = cards
+				resultsBox.Refresh()
+				status.SetText(fmt.Sprintf("%d result(s)", len(cards)))
+				if len(resp.Warnings) > 0 {
+					warnings.SetText("Warnings:\n" + strings.Join(resp.Warnings, "\n"))
+				}
+				if len(cards) == 0 && len(resp.Warnings) == 0 {
+					status.SetText("No results.")
+				}
+			})
 		}()
 	}
 
