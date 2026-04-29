@@ -38,7 +38,6 @@ Pre-built binaries for Linux, macOS, and Windows are available on the
 | Platform | Binary |
 |----------|--------|
 | Linux amd64 | `beddel-desk-linux-amd64` |
-| Linux arm64 | `beddel-desk-linux-arm64` |
 | macOS Intel | `beddel-desk-darwin-amd64` |
 | macOS Apple Silicon | `beddel-desk-darwin-arm64` |
 | Windows amd64 | `beddel-desk-windows-amd64.exe` |
