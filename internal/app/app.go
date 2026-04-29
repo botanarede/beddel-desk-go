@@ -130,23 +130,30 @@ func (a *App) showSearch() {
 	warnings.Wrapping = fyne.TextWrapWord
 	resultsBox := container.NewVBox()
 
+	searchButton := widget.NewButton("Run Search", nil)
+
 	runSearch := func() {
 		resultsBox.RemoveAll()
 		warnings.SetText("")
+		searchButton.Disable()
+		status.SetText("Searching...")
 
 		backend := a.cfg.FindBackend(backendSelect.Selected)
 		if backend == nil {
 			status.SetText("Configure and select a backend before searching.")
+			searchButton.Enable()
 			return
 		}
 		from, err := parseOptionalDate(fromEntry.Text, false)
 		if err != nil {
 			status.SetText(err.Error())
+			searchButton.Enable()
 			return
 		}
 		to, err := parseOptionalDate(toEntry.Text, true)
 		if err != nil {
 			status.SetText(err.Error())
+			searchButton.Enable()
 			return
 		}
 		favs := map[string]struct{}{}
@@ -158,11 +165,12 @@ func (a *App) showSearch() {
 			}
 			if len(favs) == 0 {
 				status.SetText("No favorites exist for this backend.")
+				searchButton.Enable()
 				return
 			}
 		}
 
-		resp, err := search.Search(search.Query{
+		q := search.Query{
 			Text:        queryEntry.Text,
 			BackendName: backend.Name,
 			Paths:       backend.Paths,
@@ -170,22 +178,28 @@ func (a *App) showSearch() {
 			From:        from,
 			To:          to,
 			Favorites:   favs,
-		})
-		if err != nil {
-			status.SetText(err.Error())
-			return
 		}
-		for _, result := range resp.Results {
-			resultsBox.Add(a.resultCard(result, win))
-		}
-		status.SetText(fmt.Sprintf("%d result(s)", len(resp.Results)))
-		if len(resp.Warnings) > 0 {
-			warnings.SetText("Warnings:\n" + strings.Join(resp.Warnings, "\n"))
-		}
-		if len(resp.Results) == 0 && len(resp.Warnings) == 0 {
-			status.SetText("No results.")
-		}
+		go func() {
+			resp, err := search.Search(q)
+			searchButton.Enable()
+			if err != nil {
+				status.SetText(err.Error())
+				return
+			}
+			for _, result := range resp.Results {
+				resultsBox.Add(a.resultCard(result, win))
+			}
+			status.SetText(fmt.Sprintf("%d result(s)", len(resp.Results)))
+			if len(resp.Warnings) > 0 {
+				warnings.SetText("Warnings:\n" + strings.Join(resp.Warnings, "\n"))
+			}
+			if len(resp.Results) == 0 && len(resp.Warnings) == 0 {
+				status.SetText("No results.")
+			}
+		}()
 	}
+
+	searchButton.OnTapped = runSearch
 
 	form := container.NewVBox(
 		widget.NewForm(
@@ -196,7 +210,7 @@ func (a *App) showSearch() {
 			widget.NewFormItem("To", toEntry),
 		),
 		favoritesOnly,
-		widget.NewButton("Run Search", runSearch),
+		searchButton,
 		status,
 		warnings,
 	)
