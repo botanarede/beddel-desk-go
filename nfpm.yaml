@@ -1,0 +1,24 @@
+name: beddel-desk
+arch: amd64
+platform: linux
+version: __VERSION__
+maintainer: Botana Rede <dev@botanarede.com.br>
+description: Local-first desktop search for agent session history
+vendor: Botana Rede
+homepage: https://github.com/botanarede/beddel-desk-go
+license: MIT
+section: utils
+priority: optional
+depends:
+  - libgl1
+  - libx11-6
+  - libxrandr2
+  - libxxf86vm1
+  - libxi6
+  - libxcursor1
+  - libxinerama1
+contents:
+  - src: beddel-desk-linux-amd64
+    dst: /usr/bin/beddel-desk
+    file_info:
+      mode: 0755

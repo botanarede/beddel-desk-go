@@ -56,8 +56,34 @@ jobs:
           name: ${{ matrix.binary }}
           path: ${{ matrix.binary }}
 
-  release:
+  deb:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: beddel-desk-linux-amd64
+          path: .
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build .deb
+        run: |
+          chmod +x beddel-desk-linux-amd64
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed "s/__VERSION__/${VERSION}/" nfpm.yaml > nfpm-resolved.yaml
+          nfpm package -f nfpm-resolved.yaml -p deb -t beddel-desk_${VERSION}_amd64.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beddel-desk-deb
+          path: "*.deb"
+
+  release:
+    needs: [build, deb]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

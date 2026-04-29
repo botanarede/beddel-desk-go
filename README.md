@@ -42,6 +42,14 @@ Pre-built binaries for Linux, macOS, and Windows are available on the
 | macOS Apple Silicon | `beddel-desk-darwin-arm64` |
 | Windows amd64 | `beddel-desk-windows-amd64.exe` |
 
+On Debian/Ubuntu, a `.deb` package is also available:
+
+```bash
+# Download and install
+wget https://github.com/botanarede/beddel-desk-go/releases/latest/download/beddel-desk_0.1.0_amd64.deb
+sudo dpkg -i beddel-desk_0.1.0_amd64.deb
+```
+
 ## Clone
 
 ```bash
