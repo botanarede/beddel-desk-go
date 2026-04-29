@@ -14,7 +14,7 @@ The repository is open source and intended to stay easy to clone, inspect, build
 ## Scope
 
 The first implementation focuses on:
-- choosing a configured backend from the tray UI
+- choosing a configured backend from the desktop menu or tray menu when supported by the platform
 - running an on-demand search against that backend's local session files
 - showing results with lightweight filters
 - storing only local references such as favorites, session file names, and backend categories
@@ -39,7 +39,13 @@ cd beddel-desk-go
 
 ## Build
 
-The current scaffold builds with the Go standard toolchain.
+Beddel Desk is implemented with Go and Fyne. You need the Go toolchain and the native desktop prerequisites required by Fyne for your OS.
+
+Install dependencies after cloning:
+
+```bash
+go mod download
+```
 
 ### Linux
 
@@ -71,6 +77,34 @@ On Windows:
 .\bin\beddel-desk.exe version
 ```
 
+## Run
+
+```bash
+go run ./cmd/beddel-desk
+```
+
+The app opens a desktop window and registers a system tray menu on Fyne desktop drivers that support it. The shell exposes:
+
+- `Search`
+- `Favorites`
+- `Recent`
+- `Settings`
+- `Quit`
+
+## Local Storage
+
+Configuration and reference storage use the operating system user config directory under `beddel-desk`.
+
+Persisted data is limited to:
+
+- backend names and categories
+- local source paths
+- favorite session file references
+- recent session file references
+- timestamps for favorites and recent opens
+
+Search result content, matched lines, parsed transcript data, normalized transcript data, chunks, embeddings, and indexes are not written to disk.
+
 ## Documentation
 
 The full Version 1 definition lives in:
@@ -86,4 +120,3 @@ Criticism, suggestions, and implementation feedback:
 ## License
 
 [MIT](LICENSE)
-

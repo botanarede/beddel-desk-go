@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/botanarede/beddel-desk-go/internal/app"
 	"github.com/botanarede/beddel-desk-go/internal/version"
 )
 
@@ -13,7 +14,5 @@ func main() {
 		return
 	}
 
-	fmt.Println("Beddel Desk bootstrap repository")
-	fmt.Println("Run `beddel-desk version` to verify the binary.")
+	app.Run()
 }
-
