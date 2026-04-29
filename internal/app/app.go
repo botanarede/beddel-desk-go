@@ -37,6 +37,7 @@ type App struct {
 // Run starts the cross-platform desktop application.
 func Run() {
 	fyneApp := app.NewWithID(appID)
+	fyneApp.SetIcon(fyne.NewStaticResource("icon.png", iconBytes))
 
 	cfg, cfgErr := config.Load()
 	store, storeErr := storage.LoadStore()

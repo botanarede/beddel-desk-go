@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Beddel Desk
+Comment=Local-first desktop search for agent session history
+Exec=beddel-desk
+Icon=beddel-desk
+Terminal=false
+Type=Application
+Categories=Utility;Development;
