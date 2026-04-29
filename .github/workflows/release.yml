@@ -22,8 +22,15 @@ jobs:
             goos: linux
             goarch: arm64
             binary: beddel-desk-linux-arm64
-            deps: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev gcc-aarch64-linux-gnu
+            deps: |
+              sudo dpkg --add-architecture arm64
+              sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list
+              echo 'deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse' | sudo tee /etc/apt/sources.list.d/arm64.list
+              echo 'deb [arch=arm64] http://ports.ubuntu.com/ noble-updates main restricted universe multiverse' | sudo tee -a /etc/apt/sources.list.d/arm64.list
+              sudo apt-get update
+              sudo apt-get install -y gcc-aarch64-linux-gnu libgl1-mesa-dev:arm64 libx11-dev:arm64 libxrandr-dev:arm64 libxxf86vm-dev:arm64 libxi-dev:arm64 libxcursor-dev:arm64 libxinerama-dev:arm64
             cc: aarch64-linux-gnu-gcc
+            pkgconfig: /usr/lib/aarch64-linux-gnu/pkgconfig
           - os: macos-latest
             goos: darwin
             goarch: amd64
@@ -58,6 +65,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
           CC: ${{ matrix.cc || '' }}
+          PKG_CONFIG_PATH: ${{ matrix.pkgconfig || '' }}
         run: go build -trimpath -ldflags="-s -w" -o ${{ matrix.binary }} ./cmd/beddel-desk
 
       - uses: actions/upload-artifact@v4
