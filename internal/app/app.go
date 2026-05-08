@@ -7,6 +7,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -143,13 +144,32 @@ func (a *App) homeView() fyne.CanvasObject {
 // searchView builds the search surface as a CanvasObject. Previously this
 // method created a new fyne.Window; now all layout is returned for the caller
 // to render via the navigator.
+//
+// In 0.2.0 the view also owns the "Mode" label and the silent-fallback
+// logic from Story 11: it tries the semantic engine first via
+// trySemanticSearch and degrades to search.Search whenever the engine
+// is unavailable or reports an error. The tag-free stubs in
+// search_view_semantic_stub.go make sure the view compiles and works
+// the same way in the default (lexical-only) build.
 func (a *App) searchView() fyne.CanvasObject {
 	log.Println("searchView: building")
 
 	backendNames := a.backendNames()
 	backendSelect := widget.NewSelect(backendNames, nil)
+	// The Mode label starts empty/lexical and updates whenever the
+	// user picks a backend. Building both widgets together lets us
+	// wire OnChanged without a second lookup later on.
+	modeLabel := widget.NewLabel("lexical")
+	modeLabel.Wrapping = fyne.TextWrapWord
 	if len(backendNames) > 0 {
 		backendSelect.SetSelected(backendNames[0])
+		modeLabel.SetText(a.currentSearchMode(backendNames[0]))
+	}
+	backendSelect.OnChanged = func(selected string) {
+		// The mode depends on whether the backend has been indexed,
+		// which is cheap to look up; refresh on every selection
+		// change so the label never lies.
+		modeLabel.SetText(a.currentSearchMode(selected))
 	}
 	queryEntry := widget.NewEntry()
 	queryEntry.SetPlaceHolder("Plain-text query")
@@ -180,6 +200,10 @@ func (a *App) searchView() fyne.CanvasObject {
 			searchButton.Enable()
 			return
 		}
+		// Refresh the mode label at search time too: the backend may
+		// have become indexed since the view was built (the user
+		// could have visited the Index Manager in between).
+		modeLabel.SetText(a.currentSearchMode(backend.Name))
 		from, err := parseOptionalDate(fromEntry.Text, false)
 		if err != nil {
 			status.SetText(err.Error())
@@ -217,12 +241,47 @@ func (a *App) searchView() fyne.CanvasObject {
 		}
 		go func() {
 			log.Println("search: starting")
-			resp, err := search.Search(q)
-			log.Printf("search: done, %d results, err=%v", len(resp.Results), err)
+			ctx := context.Background()
+
+			// Story 11 decision tree: try semantic first, then fall
+			// back. "ok=false" means the engine is not linked in or
+			// no index exists — silent fallback, no warning.
+			// "ok=true, err!=nil" means the engine misbehaved — we
+			// log the error and surface a non-fatal warning before
+			// falling back, so the user knows the fallback happened.
+			resp, ok, semErr := a.trySemanticSearch(ctx, q)
+			var (
+				searchErr      error
+				fallbackReason string
+			)
+			if ok && semErr == nil {
+				searchErr = nil
+				log.Printf("search: semantic returned %d result(s)", len(resp.Results))
+			} else {
+				if ok && semErr != nil {
+					log.Printf("search: semantic failed, falling back to lexical: %v", semErr)
+					fallbackReason = fmt.Sprintf(
+						"semantic search failed, falling back to lexical: %v",
+						semErr,
+					)
+				}
+				resp, searchErr = search.Search(q)
+				log.Printf("search: lexical returned %d result(s), err=%v",
+					len(resp.Results), searchErr)
+				if fallbackReason != "" && searchErr == nil {
+					// Prepend so the UI shows the fallback reason
+					// first; the V1 warnings (file too big, etc.)
+					// come after.
+					resp.Warnings = append(
+						[]string{fallbackReason},
+						resp.Warnings...,
+					)
+				}
+			}
 
 			// Build cards outside the UI thread; hand them to fyne.Do for render.
 			var cards []fyne.CanvasObject
-			if err == nil {
+			if searchErr == nil {
 				for _, result := range resp.Results {
 					cards = append(cards, a.resultCard(result))
 				}
@@ -230,8 +289,8 @@ func (a *App) searchView() fyne.CanvasObject {
 
 			fyne.Do(func() {
 				searchButton.Enable()
-				if err != nil {
-					status.SetText(err.Error())
+				if searchErr != nil {
+					status.SetText(searchErr.Error())
 					return
 				}
 				resultsBox.Objects = cards
@@ -252,6 +311,7 @@ func (a *App) searchView() fyne.CanvasObject {
 	form := container.NewVBox(
 		widget.NewForm(
 			widget.NewFormItem("Backend", backendSelect),
+			widget.NewFormItem("Mode", modeLabel),
 			widget.NewFormItem("Query", queryEntry),
 			widget.NewFormItem("Path filter", pathFilterEntry),
 			widget.NewFormItem("From", fromEntry),

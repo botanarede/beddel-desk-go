@@ -20,15 +20,32 @@ const (
 )
 
 // Result represents a single search match.
+//
+// The last three fields are populated only by the V2 hybrid/semantic
+// path (see semantic.go, built under the sqlite_fts5 tag). The V1
+// lexical Search leaves them at their zero values so the existing
+// rendering code is unaffected.
 type Result struct {
 	FilePath    string
 	BackendName string
 	MatchLine   string
 	LineNumber  int
 	FileModTime time.Time
+
+	// V2 additions, populated only when hybrid search produced the row.
+	// Score is the Reciprocal Rank Fusion score from SearchHybrid; Role
+	// is the chunk role (user / assistant) if available; ChunkIndex is
+	// the 0-based chunk offset inside the session file.
+	Score      float64
+	Role       string
+	ChunkIndex int
 }
 
 // Query defines the parameters for a search operation.
+//
+// TopK is consumed exclusively by SearchSemantic (see semantic.go).
+// The V1 lexical Search ignores it and caps at MaxResults instead.
+// A zero TopK lets SearchSemantic apply its default of 50.
 type Query struct {
 	Text        string
 	BackendName string
@@ -39,6 +56,11 @@ type Query struct {
 	Favorites   map[string]struct{}
 	MaxFileSize int64
 	MaxResults  int
+
+	// TopK is optional; only SearchSemantic reads it. A zero value
+	// keeps V1 behavior and makes SearchSemantic fall back to its
+	// internal default.
+	TopK int
 }
 
 // Response contains search results and non-fatal traversal warnings.
