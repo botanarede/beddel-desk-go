@@ -1,5 +1,11 @@
 # 01. System Overview
 
+> **Status:** Foundational V1 design.
+>
+> **Successor:** [02. Semantic Search + Single-Window UX](./02-semantic-search.md)
+> extends this document for Beddel Desk 0.2.0. The data boundary and build boundary
+> sections below are updated by the V2 addendum; everything else still applies.
+
 ## Objective
 
 Provide a simple technical frame for implementing the local-only Version 1 scope described

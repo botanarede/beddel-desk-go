@@ -1,6 +1,11 @@
 # 01. Epic V1: Local Session Search
 
-> **Status:** Draft
+> **Status:** Shipped in `Beddel Desk 0.1.x`.
+>
+> **Successor:** The `Not allowed on disk` clause is partially relaxed in
+> [02. Epic V2](./02-epic-v2-semantic-search.md), which introduces an **opt-in**
+> semantic index. See the "Reconciliation with V1" section of the V2 PRD for the exact
+> delta. Everything else below still applies.
 >
 > **Target:** `Beddel Desk`
 

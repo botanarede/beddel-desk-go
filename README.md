@@ -126,9 +126,13 @@ Search result content, matched lines, parsed transcript data, normalized transcr
 
 ## Documentation
 
-The full Version 1 definition lives in:
-- [docs/prd/index.md](docs/prd/index.md)
-- [docs/prd/01-epic-v1-local-search.md](docs/prd/01-epic-v1-local-search.md)
+Product requirements and architecture docs live under `docs/`:
+
+- [docs/prd/index.md](docs/prd/index.md) — PRD index, active and shipped epics
+- [docs/prd/02-epic-v2-semantic-search.md](docs/prd/02-epic-v2-semantic-search.md) — active epic: semantic search and single-window UX for 0.2.0
+- [docs/prd/01-epic-v1-local-search.md](docs/prd/01-epic-v1-local-search.md) — shipped epic: local session search
+- [docs/architecture/index.md](docs/architecture/index.md) — architecture index
+- [docs/stories/](docs/stories/) — implementation stories, one per slice
 
 ## Feedback
 
