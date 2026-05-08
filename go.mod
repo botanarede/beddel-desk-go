@@ -2,12 +2,17 @@ module github.com/botanarede/beddel-desk-go
 
 go 1.23.0
 
-require fyne.io/fyne/v2 v2.6.3
+require (
+	fyne.io/fyne/v2 v2.6.3
+	github.com/sugarme/tokenizer v0.3.0
+	github.com/yalue/onnxruntime_go v1.20.0
+)
 
 require (
 	fyne.io/systray v1.11.0 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/fredbi/uri v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fyne-io/gl-js v0.2.0 // indirect
@@ -24,17 +29,22 @@ require (
 	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
 	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.5.1 // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rymdport/portal v0.4.1 // indirect
+	github.com/schollz/progressbar/v2 v2.15.0 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/sugarme/regexpset v0.0.0-20200920021344-4d4ec8eaf93c // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
 	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
