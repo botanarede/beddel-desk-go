@@ -44,7 +44,12 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
-        run: go build -trimpath -ldflags="-s -w" -o ${{ matrix.binary }} ./cmd/beddel-desk
+        # Release binaries include the semantic search stack: FTS5 (via the
+        # sqlite_fts5 build tag on mattn/go-sqlite3) and sqlite-vec (linked
+        # via the asg017/sqlite-vec-go-bindings/cgo adapter). The ONNX
+        # runtime and all-MiniLM-L6-v2 model are NOT embedded; they are
+        # downloaded on first use. See docs/architecture/02-semantic-search.md.
+        run: go build -trimpath -tags sqlite_fts5 -ldflags="-s -w" -o ${{ matrix.binary }} ./cmd/beddel-desk
 
       - uses: actions/upload-artifact@v4
         with:

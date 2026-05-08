@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Install system dependencies
+        # libgl1-mesa-dev and xorg-dev are needed by the Fyne cgo bindings.
+        # gcc is required because the sqlite_fts5 build path uses CGO.
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
+
+      # The project supports two build configurations:
+      #   1. Default build (lexical search only) — no FTS5/sqlite-vec/ONNX
+      #      dependencies linked in. This is what contributors build by
+      #      default and what is easiest to develop against.
+      #   2. sqlite_fts5 build (full semantic search stack) — the release
+      #      binaries use this configuration. See release.yml.
+      # CI verifies both so a regression in either is caught early.
+
+      - name: Vet (default build)
+        run: go vet ./...
+
+      - name: Test (default build)
+        run: go test -count=1 ./...
+
+      - name: Build (default build)
+        run: go build -v ./...
+
+      - name: Vet (sqlite_fts5 build)
+        run: go vet -tags sqlite_fts5 ./...
+
+      - name: Test (sqlite_fts5 build)
+        run: go test -tags sqlite_fts5 -count=1 ./...
+
+      - name: Build (sqlite_fts5 build)
+        env:
+          CGO_ENABLED: "1"
+        run: go build -tags sqlite_fts5 -o /tmp/beddel-desk-semantic ./cmd/beddel-desk
+
+      - name: Run version (sqlite_fts5 build)
+        run: /tmp/beddel-desk-semantic version

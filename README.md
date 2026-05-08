@@ -2,24 +2,25 @@
 
 Beddel Desk is a lean desktop utility for searching local agent session history on demand.
 
-Version 1 is intentionally small:
-- local-only
-- tray-oriented product scope
-- no remote services
+Version 0.2.0 adds opt-in semantic search to the local-first Version 1 foundation:
+- local-only by default
+- tray-oriented single-window UX
+- no remote services at runtime after a one-time first-run asset download
 - no background watchers
-- no persistent storage of processed session content
+- persistent storage of processed session content is allowed only inside the opt-in `index.db`
 
 The repository is open source and intended to stay easy to clone, inspect, build, and improve.
 
 ## Scope
 
-The first implementation focuses on:
+Version 0.2.0 supports:
 - choosing a configured backend from the desktop menu or tray menu when supported by the platform
-- running an on-demand search against that backend's local session files
-- showing results with lightweight filters
-- storing only local references such as favorites, session file names, and backend categories
+- running an on-demand search against that backend's local session files — hybrid (FTS5 + vector) when an index exists, lexical (grep) otherwise
+- optionally building a per-backend semantic index via the **Index Manager** view, with a first-run disclosure for the ~110 MB of model + runtime assets
+- showing results with lightweight filters (path, date, favorites-only)
+- storing only local references (favorites, session file names, backend categories) plus the opt-in `index.db` that the user can delete at any time
 
-The project does not persist normalized transcripts, extracted message text, embeddings, or any other processed session content.
+The project does not ship the ONNX model or the ONNX runtime inside the binary. They are downloaded on first indexing, validated against a committed SHA-256 manifest, and cached under the user's OS cache directory. If `libonnxruntime` is already installed on the system, the application reuses it and skips the runtime download.
 
 ## Repository Layout
 
@@ -69,20 +70,35 @@ go mod download
 ### Linux
 
 ```bash
+# Default (lexical search only):
 go build -o bin/beddel-desk ./cmd/beddel-desk
+
+# With semantic search (hybrid FTS5 + vector):
+CGO_ENABLED=1 go build -tags sqlite_fts5 -o bin/beddel-desk ./cmd/beddel-desk
 ```
 
 ### macOS
 
 ```bash
+# Default (lexical search only):
 go build -o bin/beddel-desk ./cmd/beddel-desk
+
+# With semantic search:
+CGO_ENABLED=1 go build -tags sqlite_fts5 -o bin/beddel-desk ./cmd/beddel-desk
 ```
 
 ### Windows
 
 ```powershell
+# Default (lexical search only):
 go build -o bin/beddel-desk.exe ./cmd/beddel-desk
+
+# With semantic search:
+$env:CGO_ENABLED="1"
+go build -tags sqlite_fts5 -o bin/beddel-desk.exe ./cmd/beddel-desk
 ```
+
+> The `sqlite_fts5` build links SQLite FTS5 (via `github.com/mattn/go-sqlite3`) and the sqlite-vec extension (via `github.com/asg017/sqlite-vec-go-bindings/cgo`). Release binaries use this configuration.
 
 ## Verify
 
@@ -104,9 +120,10 @@ go run ./cmd/beddel-desk
 
 The app opens a desktop window and registers a system tray menu on Fyne desktop drivers that support it. The shell exposes:
 
-- `Search`
+- `Search` — hybrid when the selected backend has an index, lexical (V1 grep) otherwise
 - `Favorites`
 - `Recent`
+- `Index Manager` — opt into semantic search per backend, view index status, clear individual indexes or the whole index database
 - `Settings`
 - `Quit`
 
@@ -114,7 +131,7 @@ The app opens a desktop window and registers a system tray menu on Fyne desktop 
 
 Configuration and reference storage use the operating system user config directory under `beddel-desk`.
 
-Persisted data is limited to:
+**Always persisted (V1 compatible):**
 
 - backend names and categories
 - local source paths
@@ -122,7 +139,18 @@ Persisted data is limited to:
 - recent session file references
 - timestamps for favorites and recent opens
 
-Search result content, matched lines, parsed transcript data, normalized transcript data, chunks, embeddings, and indexes are not written to disk.
+**Persisted only when the user opts into semantic search via the Index Manager:**
+
+- `index.db` (SQLite + FTS5 + sqlite-vec): chunk rows, the FTS5 shadow, the 384-dim vector shadow, and `file_index` rows tracking per-file mtime
+
+**Downloaded assets (cached under the OS user cache directory, never shipped with the binary):**
+
+- `libonnxruntime.{so,dylib,dll}` for the current platform — reused from the system when a compatible copy is already installed
+- `sentence-transformers/all-MiniLM-L6-v2` ONNX model and `tokenizer.json`
+
+Both the index database and the downloaded assets can be cleared at any time (Index Manager > Clear All for the database, or delete the cache directory directly for the assets).
+
+Search match lines, parsed transcript data, embeddings outside `index.db`, and any other processed session content are never written to disk.
 
 ## Documentation
 
