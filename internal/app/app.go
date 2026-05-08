@@ -1,4 +1,9 @@
 // Package app wires the Beddel Desk desktop UI to the local-only domain packages.
+//
+// As of 0.2.0 the UI is single-window: every "view" (home, search, favorites,
+// recent, settings, result detail) is a fyne.CanvasObject rendered into the
+// main window via the Navigator. The old pattern of a.fyneApp.NewWindow() for
+// each surface is gone.
 package app
 
 import (
@@ -31,6 +36,7 @@ const appID = "com.botanarede.beddel-desk"
 type App struct {
 	fyneApp fyne.App
 	main    fyne.Window
+	nav     *Navigator
 	cfg     *config.AppConfig
 	store   *storage.Store
 }
@@ -56,11 +62,12 @@ func Run() {
 
 	desk.main = fyneApp.NewWindow("Beddel Desk")
 	desk.main.Resize(fyne.NewSize(900, 620))
+	desk.nav = newNavigator(desk.main)
 	desk.main.SetMainMenu(desk.mainMenu())
 	if desktopApp, ok := fyneApp.(desktop.App); ok {
 		desktopApp.SetSystemTrayMenu(desk.trayMenu())
 	}
-	desk.main.SetContent(desk.homeView())
+	desk.nav.Reset(desk.homeView())
 	desk.main.SetCloseIntercept(func() {
 		desk.main.Hide()
 	})
@@ -77,16 +84,22 @@ func (a *App) mainMenu() *fyne.MainMenu {
 }
 
 func (a *App) trayMenu() *fyne.Menu {
+	// Tray actions jump between top-level surfaces, so they Reset() the
+	// navigation stack rather than Push() onto it. This keeps the back-stack
+	// focused on in-flow navigation (e.g. search result -> detail view).
 	return fyne.NewMenu("Beddel Desk",
-		fyne.NewMenuItem("Search", a.showSearch),
-		fyne.NewMenuItem("Favorites", a.showFavorites),
-		fyne.NewMenuItem("Recent", a.showRecent),
-		fyne.NewMenuItem("Settings", a.showSettings),
+		fyne.NewMenuItem("Home", func() { a.nav.Reset(a.homeView()) }),
+		fyne.NewMenuItem("Search", func() { a.nav.Reset(a.searchView()) }),
+		fyne.NewMenuItem("Favorites", func() { a.nav.Reset(a.favoritesView()) }),
+		fyne.NewMenuItem("Recent", func() { a.nav.Reset(a.recentView()) }),
+		fyne.NewMenuItem("Settings", func() { a.nav.Reset(a.settingsView()) }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Quit", func() { a.fyneApp.Quit() }),
 	)
 }
 
+// homeView renders the landing page. It never shows a back button because it
+// is always the navigation root (tray menu items call nav.Reset with it).
 func (a *App) homeView() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle("Beddel Desk", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	body := widget.NewLabel("Local-first desktop search for local agent session history. Configure a backend, then run searches on demand.")
@@ -98,19 +111,20 @@ func (a *App) homeView() fyne.CanvasObject {
 		nil,
 		nil,
 		container.NewCenter(container.NewVBox(
-			widget.NewButton("Search", a.showSearch),
-			widget.NewButton("Favorites", a.showFavorites),
-			widget.NewButton("Recent", a.showRecent),
-			widget.NewButton("Settings", a.showSettings),
+			widget.NewButton("Search", func() { a.nav.Push(a.searchView()) }),
+			widget.NewButton("Favorites", func() { a.nav.Push(a.favoritesView()) }),
+			widget.NewButton("Recent", func() { a.nav.Push(a.recentView()) }),
+			widget.NewButton("Settings", func() { a.nav.Push(a.settingsView()) }),
 			widget.NewLabel(version.String()),
 		)),
 	)
 }
 
-func (a *App) showSearch() {
-	log.Println("showSearch: opening window")
-	win := a.fyneApp.NewWindow("Search - Beddel Desk")
-	win.Resize(fyne.NewSize(1100, 720))
+// searchView builds the search surface as a CanvasObject. Previously this
+// method created a new fyne.Window; now all layout is returned for the caller
+// to render via the navigator.
+func (a *App) searchView() fyne.CanvasObject {
+	log.Println("searchView: building")
 
 	backendNames := a.backendNames()
 	backendSelect := widget.NewSelect(backendNames, nil)
@@ -186,11 +200,11 @@ func (a *App) showSearch() {
 			resp, err := search.Search(q)
 			log.Printf("search: done, %d results, err=%v", len(resp.Results), err)
 
-			// Build cards outside UI thread
+			// Build cards outside the UI thread; hand them to fyne.Do for render.
 			var cards []fyne.CanvasObject
 			if err == nil {
 				for _, result := range resp.Results {
-					cards = append(cards, a.resultCard(result, win))
+					cards = append(cards, a.resultCard(result))
 				}
 			}
 
@@ -229,14 +243,24 @@ func (a *App) showSearch() {
 		warnings,
 	)
 	if len(backendNames) == 0 {
-		form.Add(widget.NewButton("Open Settings", a.showSettings))
+		form.Add(widget.NewButton("Open Settings", func() { a.nav.Push(a.settingsView()) }))
 	}
 
-	win.SetContent(container.NewBorder(form, nil, nil, nil, container.NewVScroll(resultsBox)))
-	win.Show()
+	header := a.viewHeader("Search")
+	return container.NewBorder(
+		container.NewVBox(header, form),
+		nil,
+		nil,
+		nil,
+		container.NewVScroll(resultsBox),
+	)
 }
 
-func (a *App) resultCard(result search.Result, parent fyne.Window) fyne.CanvasObject {
+// resultCard builds a card widget for a single search result. Clicking "Open"
+// still launches the external viewer; "Details" pushes a detail view onto the
+// navigator instead of opening a dialog so the user can read longer content
+// comfortably and then navigate back.
+func (a *App) resultCard(result search.Result) fyne.CanvasObject {
 	title := widget.NewLabelWithStyle(filepath.Base(result.FilePath), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	meta := widget.NewLabel(fmt.Sprintf("%s | line %d | %s", result.BackendName, result.LineNumber, result.FileModTime.Format(time.RFC3339)))
 	meta.Wrapping = fyne.TextWrapWord
@@ -247,8 +271,11 @@ func (a *App) resultCard(result search.Result, parent fyne.Window) fyne.CanvasOb
 
 	openButton := widget.NewButton("Open", func() {
 		if err := a.openSession(result.BackendName, result.FilePath); err != nil {
-			a.showErrorIn(parent, "Open Session", err)
+			a.showError("Open Session", err)
 		}
+	})
+	detailsButton := widget.NewButton("Details", func() {
+		a.nav.Push(a.resultDetailView(result))
 	})
 	favoriteButton := widget.NewButton("Add Favorite", func() {
 		err := a.store.AddFavorite(storage.Favorite{
@@ -261,19 +288,67 @@ func (a *App) resultCard(result search.Result, parent fyne.Window) fyne.CanvasOb
 			err = a.store.Save()
 		}
 		if err != nil {
-			a.showErrorIn(parent, "Add Favorite", err)
+			a.showError("Add Favorite", err)
 			return
 		}
-		dialog.ShowInformation("Favorite", "Favorite saved.", parent)
+		dialog.ShowInformation("Favorite", "Favorite saved.", a.main)
 	})
 
-	return widget.NewCard("", "", container.NewVBox(title, meta, path, match, container.NewHBox(openButton, favoriteButton)))
+	return widget.NewCard("", "", container.NewVBox(title, meta, path, match, container.NewHBox(openButton, detailsButton, favoriteButton)))
 }
 
-func (a *App) showSettings() {
-	win := a.fyneApp.NewWindow("Settings - Beddel Desk")
-	win.Resize(fyne.NewSize(900, 680))
+// resultDetailView shows a single result with the full match line and
+// metadata. It is pushed onto the navigator stack so the back button returns
+// to the search results.
+func (a *App) resultDetailView(result search.Result) fyne.CanvasObject {
+	header := a.viewHeader("Result")
 
+	title := widget.NewLabelWithStyle(filepath.Base(result.FilePath), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	meta := widget.NewLabel(fmt.Sprintf("Backend: %s\nLine: %d\nModified: %s",
+		result.BackendName, result.LineNumber, result.FileModTime.Format(time.RFC3339)))
+	meta.Wrapping = fyne.TextWrapWord
+	path := widget.NewLabel(result.FilePath)
+	path.Wrapping = fyne.TextWrapWord
+
+	match := widget.NewMultiLineEntry()
+	match.SetText(result.MatchLine)
+	match.Wrapping = fyne.TextWrapWord
+	match.Disable() // read-only view of the match content
+
+	actions := container.NewHBox(
+		widget.NewButton("Open", func() {
+			if err := a.openSession(result.BackendName, result.FilePath); err != nil {
+				a.showError("Open Session", err)
+			}
+		}),
+		widget.NewButton("Add Favorite", func() {
+			err := a.store.AddFavorite(storage.Favorite{
+				SessionPath: result.FilePath,
+				BackendName: result.BackendName,
+				Label:       filepath.Base(result.FilePath),
+				AddedAt:     time.Now(),
+			})
+			if err == nil {
+				err = a.store.Save()
+			}
+			if err != nil {
+				a.showError("Add Favorite", err)
+				return
+			}
+			dialog.ShowInformation("Favorite", "Favorite saved.", a.main)
+		}),
+	)
+
+	return container.NewBorder(
+		container.NewVBox(header, title, meta, path, actions),
+		nil,
+		nil,
+		nil,
+		container.NewVScroll(match),
+	)
+}
+
+func (a *App) settingsView() fyne.CanvasObject {
 	nameEntry := widget.NewEntry()
 	categoryEntry := widget.NewEntry()
 	pathsEntry := widget.NewMultiLineEntry()
@@ -357,25 +432,24 @@ func (a *App) showSettings() {
 		widget.NewFormItem("Category", categoryEntry),
 		widget.NewFormItem("Source paths", pathsEntry),
 	)
-	win.SetContent(container.NewBorder(
-		container.NewVBox(widget.NewLabelWithStyle("Backends", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), listBox),
+	header := a.viewHeader("Settings")
+	return container.NewBorder(
+		container.NewVBox(header, widget.NewLabelWithStyle("Backends", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), listBox),
 		container.NewVBox(status),
 		nil,
 		nil,
 		container.NewVBox(form, container.NewHBox(saveButton, newButton, deleteButton)),
-	))
-	win.Show()
+	)
 }
 
-func (a *App) showFavorites() {
-	win := a.fyneApp.NewWindow("Favorites - Beddel Desk")
-	win.Resize(fyne.NewSize(900, 620))
+func (a *App) favoritesView() fyne.CanvasObject {
 	box := container.NewVBox()
-	refresh := func() {}
+	var refresh func()
 	refresh = func() {
 		box.RemoveAll()
 		if len(a.store.Favorites) == 0 {
 			box.Add(widget.NewLabel("No favorites saved."))
+			box.Refresh()
 			return
 		}
 		for _, favorite := range a.store.Favorites {
@@ -386,34 +460,34 @@ func (a *App) showFavorites() {
 			path.Wrapping = fyne.TextWrapWord
 			openButton := widget.NewButton("Open", func() {
 				if err := a.openSession(f.BackendName, f.SessionPath); err != nil {
-					a.showErrorIn(win, "Open Favorite", err)
+					a.showError("Open Favorite", err)
 				}
 			})
 			removeButton := widget.NewButton("Remove", func() {
 				a.store.RemoveFavorite(f.BackendName, f.SessionPath)
 				if err := a.store.Save(); err != nil {
-					a.showErrorIn(win, "Remove Favorite", err)
+					a.showError("Remove Favorite", err)
 					return
 				}
 				refresh()
 			})
 			box.Add(widget.NewCard("", "", container.NewVBox(title, meta, path, container.NewHBox(openButton, removeButton))))
 		}
+		box.Refresh()
 	}
 	refresh()
-	win.SetContent(container.NewVScroll(box))
-	win.Show()
+	header := a.viewHeader("Favorites")
+	return container.NewBorder(header, nil, nil, nil, container.NewVScroll(box))
 }
 
-func (a *App) showRecent() {
-	win := a.fyneApp.NewWindow("Recent - Beddel Desk")
-	win.Resize(fyne.NewSize(900, 620))
+func (a *App) recentView() fyne.CanvasObject {
 	box := container.NewVBox()
-	refresh := func() {}
+	var refresh func()
 	refresh = func() {
 		box.RemoveAll()
 		if len(a.store.Recents) == 0 {
 			box.Add(widget.NewLabel("No recent sessions."))
+			box.Refresh()
 			return
 		}
 		for _, recent := range a.store.Recents {
@@ -424,23 +498,32 @@ func (a *App) showRecent() {
 			path.Wrapping = fyne.TextWrapWord
 			openButton := widget.NewButton("Open", func() {
 				if err := a.openSession(r.BackendName, r.SessionPath); err != nil {
-					a.showErrorIn(win, "Open Recent", err)
+					a.showError("Open Recent", err)
 				}
 			})
 			box.Add(widget.NewCard("", "", container.NewVBox(title, meta, path, openButton)))
 		}
+		box.Refresh()
 	}
 	clearButton := widget.NewButton("Clear Recent", func() {
 		a.store.ClearRecents()
 		if err := a.store.Save(); err != nil {
-			a.showErrorIn(win, "Clear Recent", err)
+			a.showError("Clear Recent", err)
 			return
 		}
 		refresh()
 	})
 	refresh()
-	win.SetContent(container.NewBorder(nil, clearButton, nil, nil, container.NewVScroll(box)))
-	win.Show()
+	header := a.viewHeader("Recent")
+	return container.NewBorder(header, clearButton, nil, nil, container.NewVScroll(box))
+}
+
+// viewHeader returns a consistent header row with the back button (hidden at
+// root) and a title label. Used by every non-home view.
+func (a *App) viewHeader(title string) fyne.CanvasObject {
+	back := a.nav.backButton()
+	label := widget.NewLabelWithStyle(title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	return container.NewHBox(back, label)
 }
 
 func (a *App) openSession(backendName, sessionPath string) error {
@@ -482,18 +565,18 @@ func (a *App) backendNames() []string {
 	return names
 }
 
+// showError displays an error dialog anchored to the single main window. The
+// old two-window variant (showErrorIn) was removed along with the per-view
+// windows.
 func (a *App) showError(title string, err error) {
 	if err == nil {
 		return
 	}
-	a.showErrorIn(a.main, title, err)
-}
-
-func (a *App) showErrorIn(parent fyne.Window, title string, err error) {
-	if err == nil {
+	if a.main == nil {
+		log.Printf("%s: %v", title, err)
 		return
 	}
-	dialog.ShowError(fmt.Errorf("%s: %w", title, err), parent)
+	dialog.ShowError(fmt.Errorf("%s: %w", title, err), a.main)
 }
 
 func splitLines(text string) []string {
