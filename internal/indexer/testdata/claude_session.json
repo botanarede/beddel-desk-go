@@ -1,0 +1,6 @@
+{
+  "conversation": [
+    {"type": "human", "text": "Explain recursion in one sentence."},
+    {"type": "assistant", "text": "Recursion is a function that calls itself to break a problem into smaller instances."}
+  ]
+}

@@ -1,0 +1,3 @@
+{"role":"user","parts":[{"text":"What is the Go garbage collector?"}]}
+{"role":"model","parts":[{"text":"Go uses a concurrent tri-color mark and sweep collector."}]}
+{"role":"user","parts":[{"text":"Thanks, that is helpful."}]}

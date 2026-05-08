@@ -1,0 +1,2 @@
+This is a plain text note with no session structure at all.
+Nothing resembling JSON lives here.

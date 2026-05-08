@@ -1,0 +1,7 @@
+{
+  "messages": [
+    {"role": "user", "content": "Hello, can you help me refactor this function?", "timestamp": "2025-01-15T10:00:00Z"},
+    {"role": "assistant", "content": "Sure. Please share the function so I can review it.", "timestamp": "2025-01-15T10:00:05Z"},
+    {"role": "system", "content": "Session context restored from previous run."}
+  ]
+}
