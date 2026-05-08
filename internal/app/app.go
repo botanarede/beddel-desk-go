@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -25,6 +26,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/botanarede/beddel-desk-go/internal/config"
+	"github.com/botanarede/beddel-desk-go/internal/embedding/download"
 	"github.com/botanarede/beddel-desk-go/internal/search"
 	"github.com/botanarede/beddel-desk-go/internal/storage"
 	"github.com/botanarede/beddel-desk-go/internal/version"
@@ -39,6 +41,20 @@ type App struct {
 	nav     *Navigator
 	cfg     *config.AppConfig
 	store   *storage.Store
+
+	// Semantic-search resources. These are populated only when the
+	// binary is built with the sqlite_fts5 tag and the user has
+	// triggered an indexing or search action. The concrete types live
+	// in index_view_indexed.go so that the default build never imports
+	// sqlite-vec, onnxruntime, or FTS5-tagged code. any is used here to
+	// keep the struct declaration tag-free.
+	semMu                 sync.Mutex
+	semIndexDB            any // *indexer.IndexDB
+	semEmbedder           any // embedding.Embedder
+	semTokenizer          any // embedding.Tokenizer
+	semDownloadManager    *download.Manager
+	semAssets             *download.Assets
+	semDisclosureAccepted bool
 }
 
 // Run starts the cross-platform desktop application.
@@ -72,6 +88,8 @@ func Run() {
 		desk.main.Hide()
 	})
 
+	defer desk.closeSemanticResources()
+
 	if cfgErr != nil || storeErr != nil {
 		desk.showError("Startup", errors.Join(cfgErr, storeErr))
 	}
@@ -92,6 +110,7 @@ func (a *App) trayMenu() *fyne.Menu {
 		fyne.NewMenuItem("Search", func() { a.nav.Reset(a.searchView()) }),
 		fyne.NewMenuItem("Favorites", func() { a.nav.Reset(a.favoritesView()) }),
 		fyne.NewMenuItem("Recent", func() { a.nav.Reset(a.recentView()) }),
+		fyne.NewMenuItem("Index Manager", func() { a.nav.Reset(a.indexManagerView()) }),
 		fyne.NewMenuItem("Settings", func() { a.nav.Reset(a.settingsView()) }),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Quit", func() { a.fyneApp.Quit() }),
@@ -114,6 +133,7 @@ func (a *App) homeView() fyne.CanvasObject {
 			widget.NewButton("Search", func() { a.nav.Push(a.searchView()) }),
 			widget.NewButton("Favorites", func() { a.nav.Push(a.favoritesView()) }),
 			widget.NewButton("Recent", func() { a.nav.Push(a.recentView()) }),
+			widget.NewButton("Index Manager", func() { a.nav.Push(a.indexManagerView()) }),
 			widget.NewButton("Settings", func() { a.nav.Push(a.settingsView()) }),
 			widget.NewLabel(version.String()),
 		)),
