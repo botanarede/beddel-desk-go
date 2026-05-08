@@ -116,12 +116,8 @@ func (n *Navigator) render() {
 
 // backButton returns a widget bound to Pop. When the stack has one or zero
 // entries the button is hidden so root views don't show a useless "back".
-//
-// The label "Voltar" matches the Portuguese UI copy used elsewhere in the app
-// (per the architecture spec). The icon clarifies direction for users whose
-// language may differ.
 func (n *Navigator) backButton() *widget.Button {
-	btn := widget.NewButtonWithIcon("Voltar", theme.NavigateBackIcon(), func() {
+	btn := widget.NewButtonWithIcon("Back", theme.NavigateBackIcon(), func() {
 		n.Pop()
 	})
 	if n.Depth() <= 1 {
