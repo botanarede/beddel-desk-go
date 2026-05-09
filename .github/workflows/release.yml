@@ -41,14 +41,15 @@ jobs:
 
       - name: Resolve sqlite3.h for sqlite-vec CGO (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         # sqlite-vec's CGO #include "sqlite3.h" fails on Windows because the
         # header lives inside mattn/go-sqlite3's module cache. We resolve the
         # path and export CGO_CFLAGS so the Build step picks it up.
         run: |
           go mod download github.com/mattn/go-sqlite3
-          $modDir = go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3
-          echo "CGO_CFLAGS=-I$modDir" >> $env:GITHUB_ENV
+          MODDIR=$(go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3)
+          MODDIR=$(echo "$MODDIR" | sed 's|\\|/|g')
+          echo "CGO_CFLAGS=-I${MODDIR}" >> "$GITHUB_ENV"
 
       - name: Build
         env:
