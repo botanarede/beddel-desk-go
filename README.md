@@ -33,14 +33,13 @@ docs/architecture/       BMAD-style architecture notes
 
 ## Download
 
-Pre-built binaries for Linux, macOS, and Windows are available on the
+Pre-built binaries for Linux and macOS are available on the
 [Releases](https://github.com/botanarede/beddel-desk-go/releases/latest) page.
 
 | Platform | Binary |
 |----------|--------|
 | Linux amd64 | `beddel-desk-linux-amd64` |
 | macOS Apple Silicon | `beddel-desk-darwin-arm64` |
-| Windows amd64 | `beddel-desk-windows-amd64.exe` |
 
 On Debian/Ubuntu, a `.deb` package is also available:
 
@@ -87,16 +86,6 @@ go build -o bin/beddel-desk ./cmd/beddel-desk
 CGO_ENABLED=1 go build -tags sqlite_fts5 -o bin/beddel-desk ./cmd/beddel-desk
 ```
 
-### Windows
-
-```powershell
-# Default (lexical search only):
-go build -o bin/beddel-desk.exe ./cmd/beddel-desk
-
-# With semantic search:
-$env:CGO_ENABLED="1"
-go build -tags sqlite_fts5 -o bin/beddel-desk.exe ./cmd/beddel-desk
-```
 
 > The `sqlite_fts5` build links SQLite FTS5 (via `github.com/mattn/go-sqlite3`) and the sqlite-vec extension (via `github.com/asg017/sqlite-vec-go-bindings/cgo`). Release binaries use this configuration.
 
@@ -106,11 +95,6 @@ go build -tags sqlite_fts5 -o bin/beddel-desk.exe ./cmd/beddel-desk
 ./bin/beddel-desk version
 ```
 
-On Windows:
-
-```powershell
-.\bin\beddel-desk.exe version
-```
 
 ## Run
 
