@@ -46,8 +46,8 @@ On Debian/Ubuntu, a `.deb` package is also available:
 
 ```bash
 # Download and install
-wget https://github.com/botanarede/beddel-desk-go/releases/latest/download/beddel-desk_0.1.0_amd64.deb
-sudo dpkg -i beddel-desk_0.1.0_amd64.deb
+wget https://github.com/botanarede/beddel-desk-go/releases/latest/download/beddel-desk_0.2.0_amd64.deb
+sudo dpkg -i beddel-desk_0.2.0_amd64.deb
 ```
 
 ## Clone
