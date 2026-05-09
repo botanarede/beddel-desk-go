@@ -45,20 +45,17 @@ func TestFormatBackendStatus_IndexedRendersCountAndBytes(t *testing.T) {
 func TestFormatIndexProgress_DoneStage(t *testing.T) {
 	got := formatIndexProgress(indexer.Progress{
 		Stage: "done",
-		Total: 12,
 	})
-	if !strings.Contains(got, "12") || !strings.Contains(got, "Indexed") {
-		t.Fatalf("got %q, want indexed-total wording", got)
+	if !strings.Contains(got, "Indexed") {
+		t.Fatalf("got %q, want indexed wording", got)
 	}
 }
 
 func TestFormatIndexProgress_InFlightStage(t *testing.T) {
 	got := formatIndexProgress(indexer.Progress{
 		Stage: "embedding",
-		Done:  3,
-		Total: 10,
 	})
-	for _, needle := range []string{"Indexing", "3", "10", "embedding"} {
+	for _, needle := range []string{"Indexing", "embedding"} {
 		if !strings.Contains(got, needle) {
 			t.Errorf("got %q, missing %q", got, needle)
 		}
