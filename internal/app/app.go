@@ -131,11 +131,11 @@ func (a *App) homeView() fyne.CanvasObject {
 		nil,
 		nil,
 		container.NewCenter(container.NewVBox(
-			widget.NewButton("Search", func() { a.nav.Push(a.searchView()) }),
-			widget.NewButton("Favorites", func() { a.nav.Push(a.favoritesView()) }),
-			widget.NewButton("Recent", func() { a.nav.Push(a.recentView()) }),
-			widget.NewButton("Index Manager", func() { a.nav.Push(a.indexManagerView()) }),
-			widget.NewButton("Settings", func() { a.nav.Push(a.settingsView()) }),
+			widget.NewButton("Search", a.SafeAction(func() { a.nav.Push(a.searchView()) })),
+			widget.NewButton("Favorites", a.SafeAction(func() { a.nav.Push(a.favoritesView()) })),
+			widget.NewButton("Recent", a.SafeAction(func() { a.nav.Push(a.recentView()) })),
+			widget.NewButton("Index Manager", a.SafeAction(func() { a.nav.Push(a.indexManagerView()) })),
+			widget.NewButton("Settings", a.SafeAction(func() { a.nav.Push(a.settingsView()) })),
 			widget.NewLabel(version.String()),
 		)),
 	)
@@ -239,7 +239,7 @@ func (a *App) searchView() fyne.CanvasObject {
 			To:          to,
 			Favorites:   favs,
 		}
-		go func() {
+		a.SafeGo(func() {
 			log.Println("search: starting")
 			ctx := context.Background()
 
@@ -323,7 +323,7 @@ func (a *App) searchView() fyne.CanvasObject {
 		warnings,
 	)
 	if len(backendNames) == 0 {
-		form.Add(widget.NewButton("Open Settings", func() { a.nav.Push(a.settingsView()) }))
+		form.Add(widget.NewButton("Open Settings", a.SafeAction(func() { a.nav.Push(a.settingsView()) })))
 	}
 
 	header := a.viewHeader("Search")
@@ -349,15 +349,15 @@ func (a *App) resultCard(result search.Result) fyne.CanvasObject {
 	match := widget.NewLabel(result.MatchLine)
 	match.Wrapping = fyne.TextWrapWord
 
-	openButton := widget.NewButton("Open", func() {
+	openButton := widget.NewButton("Open", a.SafeAction(func() {
 		if err := a.openSession(result.BackendName, result.FilePath); err != nil {
 			a.showError("Open Session", err)
 		}
-	})
-	detailsButton := widget.NewButton("Details", func() {
+	}))
+	detailsButton := widget.NewButton("Details", a.SafeAction(func() {
 		a.nav.Push(a.resultDetailView(result))
-	})
-	favoriteButton := widget.NewButton("Add Favorite", func() {
+	}))
+	favoriteButton := widget.NewButton("Add Favorite", a.SafeAction(func() {
 		err := a.store.AddFavorite(storage.Favorite{
 			SessionPath: result.FilePath,
 			BackendName: result.BackendName,
@@ -372,27 +372,29 @@ func (a *App) resultCard(result search.Result) fyne.CanvasObject {
 			return
 		}
 		dialog.ShowInformation("Favorite", "Favorite saved.", a.main)
-	})
+	}))
 
 	var indexButton *widget.Button
 	if a.isSessionIndexed(result.FilePath) {
 		indexButton = widget.NewButton("Indexed ✓", nil)
 		indexButton.Disable()
 	} else {
-		indexButton = widget.NewButton("Index", func() {})
-		indexButton.OnTapped = func() {
+		indexButton = widget.NewButton("Index", a.SafeAction(func() {}))
+		indexButton.OnTapped = a.SafeAction(func() {
 			indexButton.Disable()
 			indexButton.SetText("Preparing...")
-			go a.indexSessionFromResult(result.BackendName, result.FilePath, func(status string) {
-				indexButton.SetText(status)
-				if status == "Error" || status == "Cancelled" {
-					indexButton.Enable()
-					if status == "Cancelled" {
-						indexButton.SetText("Index")
+			a.SafeGo(func() {
+				a.indexSessionFromResult(result.BackendName, result.FilePath, func(status string) {
+					indexButton.SetText(status)
+					if status == "Error" || status == "Cancelled" {
+						indexButton.Enable()
+						if status == "Cancelled" {
+							indexButton.SetText("Index")
+						}
 					}
-				}
+				})
 			})
-		}
+		})
 	}
 
 	return widget.NewCard("", "", container.NewVBox(title, meta, path, match, container.NewHBox(openButton, detailsButton, favoriteButton, indexButton)))
@@ -417,12 +419,12 @@ func (a *App) resultDetailView(result search.Result) fyne.CanvasObject {
 	match.Disable() // read-only view of the match content
 
 	actions := container.NewHBox(
-		widget.NewButton("Open", func() {
+		widget.NewButton("Open", a.SafeAction(func() {
 			if err := a.openSession(result.BackendName, result.FilePath); err != nil {
 				a.showError("Open Session", err)
 			}
-		}),
-		widget.NewButton("Add Favorite", func() {
+		})),
+		widget.NewButton("Add Favorite", a.SafeAction(func() {
 			err := a.store.AddFavorite(storage.Favorite{
 				SessionPath: result.FilePath,
 				BackendName: result.BackendName,
@@ -437,7 +439,7 @@ func (a *App) resultDetailView(result search.Result) fyne.CanvasObject {
 				return
 			}
 			dialog.ShowInformation("Favorite", "Favorite saved.", a.main)
-		}),
+		})),
 	)
 
 	var indexButton *widget.Button
@@ -445,20 +447,22 @@ func (a *App) resultDetailView(result search.Result) fyne.CanvasObject {
 		indexButton = widget.NewButton("Indexed ✓", nil)
 		indexButton.Disable()
 	} else {
-		indexButton = widget.NewButton("Index", func() {})
-		indexButton.OnTapped = func() {
+		indexButton = widget.NewButton("Index", a.SafeAction(func() {}))
+		indexButton.OnTapped = a.SafeAction(func() {
 			indexButton.Disable()
 			indexButton.SetText("Preparing...")
-			go a.indexSessionFromResult(result.BackendName, result.FilePath, func(status string) {
-				indexButton.SetText(status)
-				if status == "Error" || status == "Cancelled" {
-					indexButton.Enable()
-					if status == "Cancelled" {
-						indexButton.SetText("Index")
+			a.SafeGo(func() {
+				a.indexSessionFromResult(result.BackendName, result.FilePath, func(status string) {
+					indexButton.SetText(status)
+					if status == "Error" || status == "Cancelled" {
+						indexButton.Enable()
+						if status == "Cancelled" {
+							indexButton.SetText("Index")
+						}
 					}
-				}
+				})
 			})
-		}
+		})
 	}
 	actions.Add(indexButton)
 
@@ -493,9 +497,9 @@ func (a *App) settingsView() fyne.CanvasObject {
 		listBox.RemoveAll()
 		for _, b := range a.cfg.Backends {
 			backend := b
-			line := widget.NewButton(fmt.Sprintf("%s (%d path(s))", backend.Name, len(backend.Paths)), func() {
+			line := widget.NewButton(fmt.Sprintf("%s (%d path(s))", backend.Name, len(backend.Paths)), a.SafeAction(func() {
 				loadBackend(backend)
-			})
+			}))
 			listBox.Add(line)
 		}
 		if len(a.cfg.Backends) == 0 {
@@ -503,7 +507,7 @@ func (a *App) settingsView() fyne.CanvasObject {
 		}
 	}
 
-	saveButton := widget.NewButton("Save Backend", func() {
+	saveButton := widget.NewButton("Save Backend", a.SafeAction(func() {
 		backend := config.Backend{
 			Name:     nameEntry.Text,
 			Category: categoryEntry.Text,
@@ -520,15 +524,15 @@ func (a *App) settingsView() fyne.CanvasObject {
 		selectedName = config.NormalizeBackend(backend).Name
 		status.SetText("Backend saved.")
 		refreshList()
-	})
-	newButton := widget.NewButton("New Backend", func() {
+	}))
+	newButton := widget.NewButton("New Backend", a.SafeAction(func() {
 		selectedName = ""
 		nameEntry.SetText("")
 		categoryEntry.SetText("")
 		pathsEntry.SetText("")
 		status.SetText("Creating new backend.")
-	})
-	deleteButton := widget.NewButton("Delete Backend", func() {
+	}))
+	deleteButton := widget.NewButton("Delete Backend", a.SafeAction(func() {
 		if selectedName == "" {
 			status.SetText("Select a backend before deleting.")
 			return
@@ -547,7 +551,7 @@ func (a *App) settingsView() fyne.CanvasObject {
 		pathsEntry.SetText("")
 		status.SetText("Backend deleted.")
 		refreshList()
-	})
+	}))
 
 	refreshList()
 	form := widget.NewForm(
@@ -581,19 +585,19 @@ func (a *App) favoritesView() fyne.CanvasObject {
 			meta := widget.NewLabel(fmt.Sprintf("%s | %s", f.BackendName, f.AddedAt.Format(time.RFC3339)))
 			path := widget.NewLabel(f.SessionPath)
 			path.Wrapping = fyne.TextWrapWord
-			openButton := widget.NewButton("Open", func() {
+			openButton := widget.NewButton("Open", a.SafeAction(func() {
 				if err := a.openSession(f.BackendName, f.SessionPath); err != nil {
 					a.showError("Open Favorite", err)
 				}
-			})
-			removeButton := widget.NewButton("Remove", func() {
+			}))
+			removeButton := widget.NewButton("Remove", a.SafeAction(func() {
 				a.store.RemoveFavorite(f.BackendName, f.SessionPath)
 				if err := a.store.Save(); err != nil {
 					a.showError("Remove Favorite", err)
 					return
 				}
 				refresh()
-			})
+			}))
 			box.Add(widget.NewCard("", "", container.NewVBox(title, meta, path, container.NewHBox(openButton, removeButton))))
 		}
 		box.Refresh()
@@ -619,23 +623,23 @@ func (a *App) recentView() fyne.CanvasObject {
 			meta := widget.NewLabel(fmt.Sprintf("%s | %s", r.BackendName, r.OpenedAt.Format(time.RFC3339)))
 			path := widget.NewLabel(r.SessionPath)
 			path.Wrapping = fyne.TextWrapWord
-			openButton := widget.NewButton("Open", func() {
+			openButton := widget.NewButton("Open", a.SafeAction(func() {
 				if err := a.openSession(r.BackendName, r.SessionPath); err != nil {
 					a.showError("Open Recent", err)
 				}
-			})
+			}))
 			box.Add(widget.NewCard("", "", container.NewVBox(title, meta, path, openButton)))
 		}
 		box.Refresh()
 	}
-	clearButton := widget.NewButton("Clear Recent", func() {
+	clearButton := widget.NewButton("Clear Recent", a.SafeAction(func() {
 		a.store.ClearRecents()
 		if err := a.store.Save(); err != nil {
 			a.showError("Clear Recent", err)
 			return
 		}
 		refresh()
-	})
+	}))
 	refresh()
 	header := a.viewHeader("Recent")
 	return container.NewBorder(header, clearButton, nil, nil, container.NewVScroll(box))
@@ -737,5 +741,69 @@ func openPath(path string) error {
 		return exec.Command("open", path).Start()
 	default:
 		return exec.Command("xdg-open", path).Start()
+	}
+}
+
+// recoverPanic catches panics from background goroutines and safe UI callbacks.
+func (a *App) recoverPanic() {
+	if r := recover(); r != nil {
+		stack := make([]byte, 4096)
+		length := runtime.Stack(stack, false)
+		errStr := fmt.Sprintf("Panic: %v\n\nStack Trace:\n%s", r, stack[:length])
+
+		log.Println(errStr)
+
+		fyne.Do(func() {
+			a.showCrashDialog(errStr)
+		})
+	}
+}
+
+// showCrashDialog displays the crash details and allows copying to the clipboard.
+func (a *App) showCrashDialog(errStr string) {
+	if a.fyneApp == nil {
+		return
+	}
+	w := a.fyneApp.NewWindow("Application Error")
+
+	errText := widget.NewMultiLineEntry()
+	errText.SetText(errStr)
+	errText.Wrapping = fyne.TextWrapWord
+
+	copyBtn := widget.NewButton("Copy to Clipboard", a.SafeAction(func() {
+		w.Clipboard().SetContent(errStr)
+	}))
+
+	closeBtn := widget.NewButton("Close", a.SafeAction(func() {
+		w.Close()
+	}))
+
+	content := container.NewBorder(
+		widget.NewLabelWithStyle("An unexpected error occurred. Please copy the details below and report to the admin.", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		container.NewHBox(copyBtn, closeBtn),
+		nil, nil,
+		errText,
+	)
+	w.SetContent(content)
+	w.Resize(fyne.NewSize(600, 400))
+	w.Show()
+}
+
+// SafeGo spawns a goroutine wrapped with the global panic handler.
+func (a *App) SafeGo(fn func()) {
+	go func() {
+		defer a.recoverPanic()
+		fn()
+	}()
+}
+
+// SafeAction wraps a UI callback with the global panic handler.
+func (a *App) SafeAction(fn func()) func() {
+	if fn == nil {
+		return nil
+	}
+	return func() {
+		defer a.recoverPanic()
+		fn()
 	}
 }

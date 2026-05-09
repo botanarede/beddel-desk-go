@@ -78,7 +78,7 @@ func (a *App) indexManagerView() fyne.CanvasObject {
 	}
 	refreshAll()
 
-	clearAllButton := widget.NewButton("Clear All", func() {
+	clearAllButton := widget.NewButton("Clear All", a.SafeAction(func() {
 		dialog.ShowConfirm(
 			"Clear all indexes",
 			"Delete the entire semantic index database. This cannot be undone.",
@@ -86,11 +86,11 @@ func (a *App) indexManagerView() fyne.CanvasObject {
 				if !ok {
 					return
 				}
-				go a.runClearAll(refreshAll)
+				a.SafeGo(func() { a.runClearAll(refreshAll) })
 			},
 			a.main,
 		)
-	})
+	}))
 
 	return container.NewBorder(
 		container.NewVBox(header, hint),
@@ -108,7 +108,7 @@ func (a *App) buildBackendRow(backend config.Backend, refreshAll func()) fyne.Ca
 	status := widget.NewLabel(a.statusFor(backend.Name))
 	status.Wrapping = fyne.TextWrapWord
 
-	clearBtn := widget.NewButton("Clear", func() {
+	clearBtn := widget.NewButton("Clear", a.SafeAction(func() {
 		dialog.ShowConfirm(
 			"Clear index for "+backend.Name,
 			"Remove every indexed session for this backend.",
@@ -118,15 +118,17 @@ func (a *App) buildBackendRow(backend config.Backend, refreshAll func()) fyne.Ca
 				}
 				clearBtn := widget.NewButton("", nil) // placeholder to avoid capture
 				_ = clearBtn
-				go a.runClearBackend(backend.Name, func() {
-					fyne.Do(func() {
-						status.SetText(a.statusFor(backend.Name))
+				a.SafeGo(func() {
+					a.runClearBackend(backend.Name, func() {
+						fyne.Do(func() {
+							status.SetText(a.statusFor(backend.Name))
+						})
 					})
 				})
 			},
 			a.main,
 		)
-	})
+	}))
 
 	return widget.NewCard("", "", container.NewVBox(
 		name,
