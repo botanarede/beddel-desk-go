@@ -303,7 +303,7 @@ func (a *App) searchView() fyne.CanvasObject {
 					status.SetText("No results.")
 				}
 			})
-		}()
+		})
 	}
 
 	searchButton.OnTapped = runSearch
