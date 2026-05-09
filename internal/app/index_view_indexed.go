@@ -6,20 +6,25 @@
 // the sqlite_fts5 tag. It imports the indexer and the ONNX embedder
 // directly, so it must not be linked into the default build. The
 // stub sibling index_view_stub.go provides the same function surface
-// (indexManagerView, closeSemanticResources) for the default build.
+// (indexManagerView, closeSemanticResources, indexSessionFromResult)
+// for the default build.
 //
-// Flow overview:
+// Flow overview (v0.2.1 — per-session on-demand indexing):
 //
-//  1. The view lists every configured backend with a status line
-//     derived from IndexDB.Stats when the DB has been opened, or
-//     "Not indexed" when it has not.
-//  2. "Index" triggers a goroutine that:
+//  1. The Index Manager lists every configured backend with a status
+//     line derived from IndexDB.Stats when the DB has been opened, or
+//     "Not indexed" when it has not. Per-backend "Clear" removes
+//     indexed sessions. "Clear All" removes the entire database.
+//
+//  2. Indexing is triggered from search result cards (see resultCard
+//     in app.go), NOT from the Index Manager. When the user taps
+//     "Index" on a result card:
 //     - on first use, shows a disclosure modal describing what will
-//     be downloaded (model + ONNX runtime), pulls the numbers
-//     from the download manifest, and aborts cleanly on Cancel.
-//     - calls ensureSemanticRuntime to build the embedder and
-//     open the index DB lazily.
-//     - streams indexer.Progress into the status label via fyne.Do.
+//       be downloaded (model + ONNX runtime).
+//     - calls ensureSemanticRuntime to build the embedder and open
+//       the index DB lazily.
+//     - calls indexer.IndexSession for that single file.
+//
 //  3. "Clear" asks for confirmation, then calls
 //     indexer.ClearBackend and refreshes the row's status.
 //  4. "Clear All" asks for confirmation, then calls
@@ -27,8 +32,7 @@
 //     whole view.
 //
 // UI updates never run on a worker goroutine; every widget mutation
-// goes through fyne.Do. The progress callback is debounced to 200 ms
-// by the indexer itself, so the UI sees a bounded rate of updates.
+// goes through fyne.Do.
 package app
 
 import (
@@ -47,18 +51,21 @@ import (
 	"github.com/botanarede/beddel-desk-go/internal/indexer"
 )
 
-// indexManagerView builds the Index Manager surface. It does not
-// start any indexing action by itself; the user must tap Index on a
-// backend's row.
+// indexManagerView builds the Index Manager surface. In v0.2.1 this
+// is a status dashboard with Clear actions. Indexing is triggered
+// from search result cards, not from here.
 func (a *App) indexManagerView() fyne.CanvasObject {
 	header := a.viewHeader("Index Manager")
 
 	if len(a.cfg.Backends) == 0 {
 		note := widget.NewLabel(
-			"No backends configured. Add one in Settings first, then return here to index it.")
+			"No backends configured. Add one in Settings first.")
 		note.Wrapping = fyne.TextWrapWord
 		return container.NewBorder(container.NewVBox(header, note), nil, nil, nil, nil)
 	}
+
+	hint := widget.NewLabel("To index a session, find it via Search and tap \"Index\" on the result card.")
+	hint.Wrapping = fyne.TextWrapWord
 
 	rows := container.NewVBox()
 	var refreshAll func()
@@ -86,7 +93,7 @@ func (a *App) indexManagerView() fyne.CanvasObject {
 	})
 
 	return container.NewBorder(
-		container.NewVBox(header),
+		container.NewVBox(header, hint),
 		clearAllButton,
 		nil,
 		nil,
@@ -94,30 +101,14 @@ func (a *App) indexManagerView() fyne.CanvasObject {
 	)
 }
 
-// buildBackendRow builds one card for a single backend. It captures
-// the backend by value and the refresh callback so the row can update
-// itself after Index / Clear actions without rebuilding the whole
-// view.
+// buildBackendRow builds one card for a single backend. In v0.2.1
+// it only shows status + Clear (no bulk Index).
 func (a *App) buildBackendRow(backend config.Backend, refreshAll func()) fyne.CanvasObject {
 	name := widget.NewLabelWithStyle(backend.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	status := widget.NewLabel(a.statusFor(backend.Name))
 	status.Wrapping = fyne.TextWrapWord
 
-	var indexBtn *widget.Button
-	var clearBtn *widget.Button
-
-	refreshRow := func() {
-		fyne.Do(func() {
-			status.SetText(a.statusFor(backend.Name))
-			indexBtn.Enable()
-			clearBtn.Enable()
-		})
-	}
-
-	indexBtn = widget.NewButton("Index", func() {
-		a.onIndexTapped(backend, status, indexBtn, clearBtn, refreshRow)
-	})
-	clearBtn = widget.NewButton("Clear", func() {
+	clearBtn := widget.NewButton("Clear", func() {
 		dialog.ShowConfirm(
 			"Clear index for "+backend.Name,
 			"Remove every indexed session for this backend.",
@@ -125,10 +116,13 @@ func (a *App) buildBackendRow(backend config.Backend, refreshAll func()) fyne.Ca
 				if !ok {
 					return
 				}
-				indexBtn.Disable()
-				clearBtn.Disable()
-				go a.runClearBackend(backend.Name, refreshRow)
-				_ = refreshAll // retained for symmetry; single-row refresh is enough here.
+				clearBtn := widget.NewButton("", nil) // placeholder to avoid capture
+				_ = clearBtn
+				go a.runClearBackend(backend.Name, func() {
+					fyne.Do(func() {
+						status.SetText(a.statusFor(backend.Name))
+					})
+				})
 			},
 			a.main,
 		)
@@ -137,51 +131,92 @@ func (a *App) buildBackendRow(backend config.Backend, refreshAll func()) fyne.Ca
 	return widget.NewCard("", "", container.NewVBox(
 		name,
 		status,
-		container.NewHBox(indexBtn, clearBtn),
+		container.NewHBox(clearBtn),
 	))
 }
 
-// onIndexTapped implements the disclosure + index flow. It is called
-// on the UI thread; the heavy work runs in a goroutine launched from
-// here.
-func (a *App) onIndexTapped(
-	backend config.Backend,
-	status *widget.Label,
-	indexBtn, clearBtn *widget.Button,
-	refreshRow func(),
-) {
-	start := func() {
-		indexBtn.Disable()
-		clearBtn.Disable()
-		status.SetText("Indexing: preparing...")
-		go a.runIndexBackend(backend, status, refreshRow)
-	}
-
+// indexSessionFromResult is the per-session indexing entry point
+// called from result cards in app.go. It handles the first-run
+// disclosure, downloads, and indexes exactly one session file.
+func (a *App) indexSessionFromResult(backendName, sessionPath string, statusCb func(string)) {
+	// First-run disclosure
 	a.semMu.Lock()
 	accepted := a.semDisclosureAccepted
 	a.semMu.Unlock()
 
-	if accepted {
-		start()
+	if !accepted {
+		done := make(chan bool, 1)
+		fyne.Do(func() {
+			dialog.ShowCustomConfirm(
+				"Download required",
+				"Download and Index",
+				"Cancel",
+				a.disclosureContent(),
+				func(ok bool) {
+					done <- ok
+				},
+				a.main,
+			)
+		})
+		ok := <-done
+		if !ok {
+			statusCb("Cancelled")
+			return
+		}
+		a.semMu.Lock()
+		a.semDisclosureAccepted = true
+		a.semMu.Unlock()
+	}
+
+	statusCb("Preparing runtime...")
+
+	ctx := context.Background()
+	if err := a.ensureSemanticRuntime(ctx, func(p download.Progress) {
+		text := formatDownloadProgress(p)
+		fyne.Do(func() { statusCb(text) })
+	}); err != nil {
+		fyne.Do(func() { a.showError("Prepare semantic runtime", err) })
+		statusCb("Error")
 		return
 	}
 
-	dialog.ShowCustomConfirm(
-		"Download required",
-		"Download and Index",
-		"Cancel",
-		a.disclosureContent(),
-		func(ok bool) {
-			if !ok {
-				return
-			}
-			a.semMu.Lock()
-			a.semDisclosureAccepted = true
-			a.semMu.Unlock()
-			start()
-		},
-		a.main,
-	)
+	db, emb, err := a.semanticDeps()
+	if err != nil {
+		fyne.Do(func() { a.showError("Prepare semantic runtime", err) })
+		statusCb("Error")
+		return
+	}
+
+	statusCb("Indexing session...")
+
+	idx := indexer.NewIndexer(db, emb)
+	err = idx.IndexSession(ctx, backendName, sessionPath, func(p indexer.Progress) {
+		text := fmt.Sprintf("Indexing: %s", p.Stage)
+		fyne.Do(func() { statusCb(text) })
+	})
+	if err != nil {
+		fyne.Do(func() { a.showError("Index session", err) })
+		statusCb("Error")
+		return
+	}
+
+	statusCb("Indexed ✓")
+}
+
+// isSessionIndexed checks if a session file is already in the index.
+// Returns false if the DB is not open (no side effects from search view).
+func (a *App) isSessionIndexed(sessionPath string) bool {
+	a.semMu.Lock()
+	db, _ := a.semIndexDB.(*indexer.IndexDB)
+	a.semMu.Unlock()
+	if db == nil {
+		return false
+	}
+	has, err := db.HasSession(sessionPath)
+	if err != nil {
+		return false
+	}
+	return has
 }
 
 // disclosureContent builds the body of the first-run disclosure
@@ -193,44 +228,7 @@ func (a *App) disclosureContent() fyne.CanvasObject {
 	return msg
 }
 
-// runIndexBackend runs the full ensureSemanticRuntime +
-// IndexBackend sequence on a worker goroutine. UI mutations go
-// through fyne.Do. The function never panics: every failure path
-// ends with an error dialog and a row refresh.
-func (a *App) runIndexBackend(backend config.Backend, status *widget.Label, refreshRow func()) {
-	ctx := context.Background()
-
-	if err := a.ensureSemanticRuntime(ctx, func(p download.Progress) {
-		text := formatDownloadProgress(p)
-		fyne.Do(func() { status.SetText(text) })
-	}); err != nil {
-		fyne.Do(func() { a.showError("Prepare semantic runtime", err) })
-		refreshRow()
-		return
-	}
-
-	db, emb, err := a.semanticDeps()
-	if err != nil {
-		fyne.Do(func() { a.showError("Prepare semantic runtime", err) })
-		refreshRow()
-		return
-	}
-
-	idx := indexer.NewIndexer(db, emb)
-	err = idx.IndexBackend(ctx, backend, func(p indexer.Progress) {
-		text := formatIndexProgress(p)
-		fyne.Do(func() { status.SetText(text) })
-	})
-	if err != nil {
-		fyne.Do(func() { a.showError("Index "+backend.Name, err) })
-	}
-	refreshRow()
-}
-
-// runClearBackend calls Indexer.ClearBackend on a worker goroutine.
-// If the embedder has never been constructed we still need an
-// indexer, so we open the DB without booting ONNX (that is all
-// ClearBackend needs).
+// runClearBackend calls IndexDB.DeleteBackend on a worker goroutine.
 func (a *App) runClearBackend(backendName string, refreshRow func()) {
 	db, err := a.ensureIndexDB()
 	if err != nil {
@@ -245,8 +243,7 @@ func (a *App) runClearBackend(backendName string, refreshRow func()) {
 }
 
 // runClearAll closes the embedder session, calls IndexDB.DeleteAll,
-// and refreshes the whole view. A fresh DB is lazily re-opened on the
-// next user action; we do not eagerly reopen here.
+// and refreshes the whole view.
 func (a *App) runClearAll(refreshAll func()) {
 	db, err := a.ensureIndexDB()
 	if err != nil {
@@ -267,9 +264,7 @@ func (a *App) runClearAll(refreshAll func()) {
 	fyne.Do(refreshAll)
 }
 
-// statusFor returns the status line for a backend. It never opens
-// the DB: if it has not been opened yet, the status simply reads
-// "Not indexed" so the view can render before any user action.
+// statusFor returns the status line for a backend.
 func (a *App) statusFor(backendName string) string {
 	a.semMu.Lock()
 	db, _ := a.semIndexDB.(*indexer.IndexDB)
@@ -285,22 +280,11 @@ func (a *App) statusFor(backendName string) string {
 }
 
 // ensureSemanticRuntime is the lazy-build entry point for the
-// download manager, the tokenizer, and the embedder. Subsequent
-// calls short-circuit once every asset is present and every object
-// is constructed.
-//
-// The report callback is forwarded to the download manager unchanged.
-// When the assets are already cached and the embedder is already
-// built, report may never fire, which is correct.
+// download manager, the tokenizer, and the embedder.
 func (a *App) ensureSemanticRuntime(ctx context.Context, report func(download.Progress)) error {
 	a.semMu.Lock()
 	defer a.semMu.Unlock()
 
-	// Build the download manager once per process. Cache root lives
-	// under the user's config directory so the Index Manager's
-	// "Clear All" covers the on-disk footprint (the assets
-	// themselves are not deleted here by design; the manifest lets
-	// the user delete the whole cache out-of-band).
 	if a.semDownloadManager == nil {
 		root, err := semanticCacheRoot()
 		if err != nil {
@@ -309,9 +293,6 @@ func (a *App) ensureSemanticRuntime(ctx context.Context, report func(download.Pr
 		a.semDownloadManager = download.NewManager(root, nil)
 	}
 
-	// Assets may already have been resolved by a previous call; if
-	// not, do it now. This is the only step that can block on the
-	// network.
 	if a.semAssets == nil {
 		assets, err := a.semDownloadManager.EnsureAssets(ctx, report)
 		if err != nil {
@@ -320,7 +301,6 @@ func (a *App) ensureSemanticRuntime(ctx context.Context, report func(download.Pr
 		a.semAssets = assets
 	}
 
-	// Tokenizer is cheap but not free: keep one per process.
 	if a.semTokenizer == nil {
 		tok, err := embedding.NewTokenizer(a.semAssets.TokenizerPath)
 		if err != nil {
@@ -329,8 +309,6 @@ func (a *App) ensureSemanticRuntime(ctx context.Context, report func(download.Pr
 		a.semTokenizer = tok
 	}
 
-	// Embedder construction loads the ONNX model and initializes the
-	// runtime environment; keep one per process.
 	if a.semEmbedder == nil {
 		tok, ok := a.semTokenizer.(embedding.Tokenizer)
 		if !ok {
@@ -343,8 +321,6 @@ func (a *App) ensureSemanticRuntime(ctx context.Context, report func(download.Pr
 		a.semEmbedder = emb
 	}
 
-	// IndexDB depends on CGO but not on the embedder; open it here
-	// so the Indexer constructor finds both dependencies ready.
 	if a.semIndexDB == nil {
 		db, err := openIndexDBAtDefaultPath()
 		if err != nil {
@@ -355,9 +331,7 @@ func (a *App) ensureSemanticRuntime(ctx context.Context, report func(download.Pr
 	return nil
 }
 
-// ensureIndexDB opens the index database (if not already open)
-// without booting the embedder. Used by Clear / Clear All, neither of
-// which needs ONNX.
+// ensureIndexDB opens the index database without booting the embedder.
 func (a *App) ensureIndexDB() (*indexer.IndexDB, error) {
 	a.semMu.Lock()
 	defer a.semMu.Unlock()
@@ -373,9 +347,7 @@ func (a *App) ensureIndexDB() (*indexer.IndexDB, error) {
 	return db, nil
 }
 
-// semanticDeps returns the *IndexDB and Embedder that the indexer
-// needs. Callers should invoke ensureSemanticRuntime first; this
-// helper only type-asserts the cached interfaces.
+// semanticDeps returns the *IndexDB and Embedder that the indexer needs.
 func (a *App) semanticDeps() (*indexer.IndexDB, indexer.Embedder, error) {
 	a.semMu.Lock()
 	defer a.semMu.Unlock()
@@ -392,12 +364,7 @@ func (a *App) semanticDeps() (*indexer.IndexDB, indexer.Embedder, error) {
 }
 
 // closeSemanticResources releases the index DB, the embedder, and
-// the tokenizer in that order. Safe to call on a zero-value App: all
-// fields default to nil interfaces and the method tolerates that.
-//
-// Ordering matters: the DB closes cleanly without the embedder; the
-// embedder's Destroy call releases the ONNX session; the tokenizer
-// is closed last because it has no dependents.
+// the tokenizer in that order.
 func (a *App) closeSemanticResources() {
 	a.semMu.Lock()
 	db, _ := a.semIndexDB.(*indexer.IndexDB)
@@ -419,10 +386,7 @@ func (a *App) closeSemanticResources() {
 	}
 }
 
-// formatBackendStatus turns a BackendStats value into the status
-// line shown next to the backend name. Extracted so
-// index_view_test.go can assert the wording without a live Fyne
-// runtime.
+// formatBackendStatus turns a BackendStats value into the status line.
 func formatBackendStatus(s indexer.BackendStats) string {
 	if s.Chunks == 0 {
 		return "Not indexed"
@@ -435,19 +399,16 @@ func formatBackendStatus(s indexer.BackendStats) string {
 }
 
 // formatIndexProgress renders an indexer.Progress tick into the
-// single-line status string shown in the Index Manager row while an
-// indexing run is in flight. The "done" stage reads "Indexed"
-// instead of "Indexing" so the user knows the run is over.
+// single-line status string.
 func formatIndexProgress(p indexer.Progress) string {
 	if p.Stage == "done" {
-		return fmt.Sprintf("Indexed: %d session(s) processed", p.Total)
+		return "Indexed ✓"
 	}
-	return fmt.Sprintf("Indexing: %d / %d (%s)", p.Done, p.Total, p.Stage)
+	return fmt.Sprintf("Indexing: %s", p.Stage)
 }
 
 // openIndexDBAtDefaultPath returns a freshly opened IndexDB at the
-// conventional location (<config dir>/index.db). Extracted so tests
-// and Clear All share the exact path.
+// conventional location (<config dir>/index.db).
 func openIndexDBAtDefaultPath() (*indexer.IndexDB, error) {
 	path, err := defaultIndexDBPath()
 	if err != nil {
@@ -457,9 +418,7 @@ func openIndexDBAtDefaultPath() (*indexer.IndexDB, error) {
 }
 
 // defaultIndexDBPath returns the absolute path where the semantic
-// index database lives. We use the config directory (not the cache
-// directory) because the file is user data: "Clear All" deletes it
-// explicitly; the OS must not evict it under cache pressure.
+// index database lives.
 func defaultIndexDBPath() (string, error) {
 	dir, err := config.ConfigDir()
 	if err != nil {
@@ -469,9 +428,7 @@ func defaultIndexDBPath() (string, error) {
 }
 
 // semanticCacheRoot returns the root directory where the download
-// manager stores the ONNX runtime and the model. Unlike the index
-// database, these are regeneratable from the pinned manifest, so we
-// put them under the user's cache directory.
+// manager stores the ONNX runtime and the model.
 func semanticCacheRoot() (string, error) {
 	base, err := userCacheDir()
 	if err != nil {

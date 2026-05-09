@@ -12,9 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
-	"github.com/botanarede/beddel-desk-go/internal/config"
 	"github.com/botanarede/beddel-desk-go/internal/embedding"
 )
 
@@ -115,53 +113,40 @@ func newTestIndexer(t *testing.T, emb Embedder) (*Indexer, *IndexDB) {
 
 func TestIndexer_HappyPath(t *testing.T) {
 	dir := t.TempDir()
-	// The three real-format fixtures cover Kiro, Gemini, and Claude
-	// Code shapes in a single run.
 	kiroPath := copyFixture(t, dir, "kiro_session.json")
-	gemPath := copyFixture(t, dir, "gemini_session.jsonl")
-	claudePath := copyFixture(t, dir, "claude_session.json")
 
 	emb := &fakeEmbedder{}
 	idx, db := newTestIndexer(t, emb)
 
 	var progresses []Progress
-	err := idx.IndexBackend(context.Background(), config.Backend{
-		Name:  "mixed",
-		Paths: []string{dir},
-	}, func(p Progress) { progresses = append(progresses, p) })
+	err := idx.IndexSession(context.Background(), "kiro", kiroPath, func(p Progress) { progresses = append(progresses, p) })
 	if err != nil {
-		t.Fatalf("IndexBackend: %v", err)
+		t.Fatalf("IndexSession: %v", err)
 	}
 
-	// Every fixture was indexed: one session per file.
-	stats, err := db.Stats("mixed")
+	stats, err := db.Stats("kiro")
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
-	if stats.Sessions != 3 {
-		t.Fatalf("Sessions = %d, want 3", stats.Sessions)
+	if stats.Sessions != 1 {
+		t.Fatalf("Sessions = %d, want 1", stats.Sessions)
 	}
 	if stats.Chunks == 0 {
 		t.Fatalf("Chunks = 0, want > 0")
 	}
 
-	// The pipeline records the filesystem mtime so a re-run skips
-	// every file (see TestIndexer_IncrementalSkip).
-	for _, p := range []string{kiroPath, gemPath, claudePath} {
-		info, err := os.Stat(p)
-		if err != nil {
-			t.Fatalf("stat %s: %v", p, err)
-		}
-		stored, ok, err := db.FileMTime(p)
-		if err != nil || !ok {
-			t.Fatalf("FileMTime %s ok=%v err=%v", p, ok, err)
-		}
-		if !stored.Equal(info.ModTime().UTC()) {
-			t.Fatalf("stored mtime %v != fs mtime %v for %s", stored, info.ModTime().UTC(), p)
-		}
+	info, err := os.Stat(kiroPath)
+	if err != nil {
+		t.Fatalf("stat %s: %v", kiroPath, err)
+	}
+	stored, ok, err := db.FileMTime(kiroPath)
+	if err != nil || !ok {
+		t.Fatalf("FileMTime %s ok=%v err=%v", kiroPath, ok, err)
+	}
+	if !stored.Equal(info.ModTime().UTC()) {
+		t.Fatalf("stored mtime %v != fs mtime %v", stored, info.ModTime().UTC())
 	}
 
-	// At least one progress tick must reach the done stage.
 	sawDone := false
 	for _, p := range progresses {
 		if p.Stage == "done" {
@@ -175,13 +160,12 @@ func TestIndexer_HappyPath(t *testing.T) {
 
 func TestIndexer_IncrementalSkip(t *testing.T) {
 	dir := t.TempDir()
-	copyFixture(t, dir, "kiro_session.json")
+	path := copyFixture(t, dir, "kiro_session.json")
 
 	emb := &fakeEmbedder{}
 	idx, _ := newTestIndexer(t, emb)
 
-	backend := config.Backend{Name: "kiro", Paths: []string{dir}}
-	if err := idx.IndexBackend(context.Background(), backend, nil); err != nil {
+	if err := idx.IndexSession(context.Background(), "kiro", path, nil); err != nil {
 		t.Fatalf("first run: %v", err)
 	}
 	firstCalls := emb.calls.Load()
@@ -189,92 +173,31 @@ func TestIndexer_IncrementalSkip(t *testing.T) {
 		t.Fatalf("first run made 0 embed calls, want >= 1")
 	}
 
-	// Second run with the same files and unchanged mtimes must skip
-	// every file: the embed call count stays constant.
-	if err := idx.IndexBackend(context.Background(), backend, nil); err != nil {
+	if err := idx.IndexSession(context.Background(), "kiro", path, nil); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
 	if got := emb.calls.Load(); got != firstCalls {
-		t.Fatalf("second run made %d new embed calls, want 0 (got total %d, baseline %d)", got-firstCalls, got, firstCalls)
-	}
-}
-
-func TestIndexer_ChunkerWarningAccumulates(t *testing.T) {
-	dir := t.TempDir()
-	copyFixture(t, dir, "kiro_session.json")
-	copyFixture(t, dir, "malformed.json")
-
-	emb := &fakeEmbedder{}
-	idx, db := newTestIndexer(t, emb)
-
-	var lastProgress Progress
-	err := idx.IndexBackend(context.Background(), config.Backend{
-		Name:  "kiro",
-		Paths: []string{dir},
-	}, func(p Progress) { lastProgress = p })
-	if err != nil {
-		t.Fatalf("IndexBackend: %v", err)
-	}
-
-	// The real fixture was indexed.
-	stats, err := db.Stats("kiro")
-	if err != nil {
-		t.Fatalf("Stats: %v", err)
-	}
-	if stats.Sessions != 1 {
-		t.Fatalf("Sessions = %d, want 1 (good fixture indexed)", stats.Sessions)
-	}
-
-	// The malformed fixture surfaced as a warning on the final tick.
-	sawWarn := false
-	for _, w := range lastProgress.Warnings {
-		if strings.Contains(w, "malformed.json") {
-			sawWarn = true
-			break
-		}
-	}
-	if !sawWarn {
-		t.Fatalf("expected malformed warning, got %q", lastProgress.Warnings)
-	}
-}
-
-func TestIndexer_AllBadFilesReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	copyFixture(t, dir, "malformed.json")
-
-	emb := &fakeEmbedder{}
-	idx, _ := newTestIndexer(t, emb)
-
-	err := idx.IndexBackend(context.Background(), config.Backend{
-		Name:  "kiro",
-		Paths: []string{dir},
-	}, nil)
-	if err == nil {
-		t.Fatalf("expected error when every file is bad, got nil")
-	}
-	if !strings.Contains(err.Error(), "no files indexed") {
-		t.Fatalf("error = %v, want substring %q", err, "no files indexed")
+		t.Fatalf("second run made %d new embed calls, want 0", got-firstCalls)
 	}
 }
 
 func TestIndexer_ContextCancellation(t *testing.T) {
 	dir := t.TempDir()
-	// Two files so the pipeline has a chance to hit a file boundary
-	// after the first batch and return ctx.Err() before writing the
-	// second.
-	copyFixture(t, dir, "kiro_session.json")
-	writeKiroFile(t, dir, "second.json", []map[string]any{
-		{"role": "user", "content": "another message"},
-	})
+	// session with 17 messages to ensure batch splitting
+	messages := make([]map[string]any, 17)
+	for i := range messages {
+		messages[i] = map[string]any{
+			"role":    "user",
+			"content": fmt.Sprintf("message number %d", i),
+		}
+	}
+	path := writeKiroFile(t, dir, "seventeen.json", messages)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	emb := &cancellingEmbedder{cancel: cancel}
 	idx, _ := newTestIndexer(t, emb)
 
-	err := idx.IndexBackend(ctx, config.Backend{
-		Name:  "kiro",
-		Paths: []string{dir},
-	}, nil)
+	err := idx.IndexSession(ctx, "kiro", path, nil)
 	if err == nil {
 		t.Fatalf("expected cancellation error, got nil")
 	}
@@ -285,10 +208,6 @@ func TestIndexer_ContextCancellation(t *testing.T) {
 
 func TestIndexer_BatchSizeBoundary(t *testing.T) {
 	dir := t.TempDir()
-	// Produce a session with 17 messages so the chunker returns 17
-	// chunks (one per message). The pipeline should split this into
-	// exactly two EmbedBatch calls: first of size 16, second of size
-	// 1. maxEmbeddingBatchSize is the boundary we care about.
 	messages := make([]map[string]any, 17)
 	for i := range messages {
 		messages[i] = map[string]any{
@@ -298,16 +217,12 @@ func TestIndexer_BatchSizeBoundary(t *testing.T) {
 	}
 	path := writeKiroFile(t, dir, "seventeen.json", messages)
 
-	// Record every batch size the embedder receives.
 	rec := &struct{ sizes []int }{}
 	emb := batchRecorder{rec: rec}
 
 	idx, db := newTestIndexer(t, emb)
-	if err := idx.IndexBackend(context.Background(), config.Backend{
-		Name:  "kiro",
-		Paths: []string{dir},
-	}, nil); err != nil {
-		t.Fatalf("IndexBackend: %v", err)
+	if err := idx.IndexSession(context.Background(), "kiro", path, nil); err != nil {
+		t.Fatalf("IndexSession: %v", err)
 	}
 
 	if len(rec.sizes) != 2 {
@@ -317,7 +232,6 @@ func TestIndexer_BatchSizeBoundary(t *testing.T) {
 		t.Fatalf("batch sizes = %v, want [%d 1]", rec.sizes, maxEmbeddingBatchSize)
 	}
 
-	// All 17 chunks landed in the DB for that session.
 	stats, err := db.Stats("kiro")
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
@@ -325,7 +239,6 @@ func TestIndexer_BatchSizeBoundary(t *testing.T) {
 	if stats.Chunks != 17 {
 		t.Fatalf("Chunks = %d, want 17", stats.Chunks)
 	}
-	_ = path
 }
 
 // batchRecorder captures the sizes of every EmbedBatch call.
@@ -349,65 +262,35 @@ func (b batchRecorder) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 	return out, nil
 }
 
-func TestIndexer_EmbedFailureInvalidatesFileNotRun(t *testing.T) {
+func TestIndexer_EmbedFailure(t *testing.T) {
 	dir := t.TempDir()
-	// Two good files. The fake embedder fails on the second call,
-	// which invalidates the second file. The first must still be
-	// present in the DB.
-	writeKiroFile(t, dir, "first.json", []map[string]any{
+	path := writeKiroFile(t, dir, "first.json", []map[string]any{
 		{"role": "user", "content": "hello"},
 	})
-	writeKiroFile(t, dir, "second.json", []map[string]any{
-		{"role": "user", "content": "world"},
-	})
 
-	emb := &fakeEmbedder{failAfter: 2, err: errors.New("simulated ONNX failure")}
-	idx, db := newTestIndexer(t, emb)
+	emb := &fakeEmbedder{failAfter: 1, err: errors.New("simulated ONNX failure")}
+	idx, _ := newTestIndexer(t, emb)
 
-	var lastProgress Progress
-	err := idx.IndexBackend(context.Background(), config.Backend{
-		Name:  "kiro",
-		Paths: []string{dir},
-	}, func(p Progress) { lastProgress = p })
-	if err != nil {
-		t.Fatalf("IndexBackend: %v", err)
+	err := idx.IndexSession(context.Background(), "kiro", path, nil)
+	if err == nil {
+		t.Fatalf("expected error, got nil")
 	}
-
-	stats, err := db.Stats("kiro")
-	if err != nil {
-		t.Fatalf("Stats: %v", err)
-	}
-	if stats.Sessions != 1 {
-		t.Fatalf("Sessions = %d, want 1 (second file must be invalidated)", stats.Sessions)
-	}
-	// The warning must name the failing file.
-	sawWarn := false
-	for _, w := range lastProgress.Warnings {
-		if strings.Contains(w, "simulated ONNX failure") {
-			sawWarn = true
-			break
-		}
-	}
-	if !sawWarn {
-		t.Fatalf("expected embed warning, got %q", lastProgress.Warnings)
+	if !strings.Contains(err.Error(), "simulated ONNX failure") {
+		t.Fatalf("expected embed error, got %v", err)
 	}
 }
 
 func TestIndexer_ClearBackendAndClearAll(t *testing.T) {
 	dir := t.TempDir()
-	copyFixture(t, dir, "kiro_session.json")
+	path := copyFixture(t, dir, "kiro_session.json")
 
 	emb := &fakeEmbedder{}
 	idx, db := newTestIndexer(t, emb)
 
-	if err := idx.IndexBackend(context.Background(), config.Backend{
-		Name:  "kiro",
-		Paths: []string{dir},
-	}, nil); err != nil {
-		t.Fatalf("IndexBackend: %v", err)
+	if err := idx.IndexSession(context.Background(), "kiro", path, nil); err != nil {
+		t.Fatalf("IndexSession: %v", err)
 	}
 
-	// ClearBackend leaves the DB open and callable.
 	if err := idx.ClearBackend("kiro"); err != nil {
 		t.Fatalf("ClearBackend: %v", err)
 	}
@@ -419,66 +302,10 @@ func TestIndexer_ClearBackendAndClearAll(t *testing.T) {
 		t.Fatalf("Chunks = %d after ClearBackend, want 0", stats.Chunks)
 	}
 
-	// ClearAll removes the file. Subsequent queries would fail, but
-	// the method itself must return nil on the first call and nil on
-	// a second idempotent call.
 	if err := idx.ClearAll(); err != nil {
 		t.Fatalf("ClearAll: %v", err)
 	}
 	if err := idx.ClearAll(); err != nil {
 		t.Fatalf("ClearAll idempotency: %v", err)
-	}
-}
-
-func TestIndexer_PermissionDeniedOnRootIsWarning(t *testing.T) {
-	// Root path does not exist: pipeline records a warning and
-	// continues; since every file in `dir` still indexes fine, the
-	// run succeeds.
-	dir := t.TempDir()
-	copyFixture(t, dir, "kiro_session.json")
-
-	emb := &fakeEmbedder{}
-	idx, db := newTestIndexer(t, emb)
-
-	var lastProgress Progress
-	err := idx.IndexBackend(context.Background(), config.Backend{
-		Name:  "kiro",
-		Paths: []string{dir, "/path/that/does/not/exist"},
-	}, func(p Progress) { lastProgress = p })
-	if err != nil {
-		t.Fatalf("IndexBackend: %v", err)
-	}
-	stats, err := db.Stats("kiro")
-	if err != nil {
-		t.Fatalf("Stats: %v", err)
-	}
-	if stats.Sessions != 1 {
-		t.Fatalf("Sessions = %d, want 1 (real file still indexed)", stats.Sessions)
-	}
-	sawMissingWarn := false
-	for _, w := range lastProgress.Warnings {
-		if strings.Contains(w, "does not exist") {
-			sawMissingWarn = true
-		}
-	}
-	if !sawMissingWarn {
-		t.Fatalf("expected missing-path warning, got %q", lastProgress.Warnings)
-	}
-}
-
-func TestReportEmitterDebounce(t *testing.T) {
-	// Purely synchronous test for the debounce helper. forced()
-	// always fires; tick-to-tick gap inside interval is dropped only
-	// by emit(), which we do not use in the pipeline (all progress
-	// ticks are forced() because they mark stage changes or file
-	// boundaries). We still verify forced() updates the last-emit
-	// timestamp so a hypothetical future emit() call honors it.
-	var count int
-	clock := time.Unix(0, 0)
-	e := newReportEmitter(func(p Progress) { count++ }, 200*time.Millisecond, func() time.Time { return clock })
-	e.forced(Progress{Stage: "walking"})
-	e.forced(Progress{Stage: "chunking"})
-	if count != 2 {
-		t.Fatalf("forced called %d times, want 2", count)
 	}
 }

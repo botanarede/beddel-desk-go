@@ -238,6 +238,24 @@ func (d *IndexDB) HasBackend(backendName string) (bool, error) {
 	return true, nil
 }
 
+// HasSession reports whether the index contains at least one chunk
+// for the given session file path. Used by the result card to decide
+// whether to show "Index" or "Indexed ✓".
+func (d *IndexDB) HasSession(sessionPath string) (bool, error) {
+	var one int
+	err := d.db.QueryRow(
+		`SELECT 1 FROM chunks WHERE session_path = ? LIMIT 1`,
+		sessionPath,
+	).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("indexer: HasSession(%q): %w", sessionPath, err)
+	}
+	return true, nil
+}
+
 // Stats returns session / chunk counts for backendName plus a
 // proportional BytesOnDisk estimate. When the backend is unknown the
 // struct is zero-valued and the error is nil.

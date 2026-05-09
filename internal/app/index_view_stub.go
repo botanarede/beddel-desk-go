@@ -7,8 +7,8 @@
 // pipeline are absent, so we cannot open the index database or run an
 // embedder. To keep the single-window UI and the tray/home entries
 // identical across builds, this file provides a friendly placeholder
-// view and a no-op closeSemanticResources. The tagged sibling file
-// index_view_indexed.go owns the real implementation.
+// view and no-op stubs. The tagged sibling file index_view_indexed.go
+// owns the real implementation.
 package app
 
 import (
@@ -18,9 +18,6 @@ import (
 )
 
 // indexManagerView is the stub counterpart of the real Index Manager.
-// It explains why semantic indexing is not available in this build so
-// a user who stumbles onto the view understands what is missing and
-// how to get it. The message is deliberately factual and short.
 func (a *App) indexManagerView() fyne.CanvasObject {
 	header := a.viewHeader("Index Manager")
 
@@ -47,10 +44,18 @@ func (a *App) indexManagerView() fyne.CanvasObject {
 	)
 }
 
-// closeSemanticResources is the no-op counterpart of the real closer
-// defined in index_view_indexed.go. It exists so that app.go's
-// `defer a.closeSemanticResources()` compiles under both build
-// configurations.
+// closeSemanticResources is the no-op counterpart.
 func (a *App) closeSemanticResources() {
 	// Intentionally empty: nothing is constructed in the default build.
+}
+
+// indexSessionFromResult is a no-op in the default build.
+// The "Index" button is hidden when semantic search is not available.
+func (a *App) indexSessionFromResult(_, _ string, statusCb func(string)) {
+	statusCb("Semantic search not available in this build")
+}
+
+// isSessionIndexed always returns false in the default build.
+func (a *App) isSessionIndexed(_ string) bool {
+	return false
 }

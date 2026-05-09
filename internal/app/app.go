@@ -374,7 +374,28 @@ func (a *App) resultCard(result search.Result) fyne.CanvasObject {
 		dialog.ShowInformation("Favorite", "Favorite saved.", a.main)
 	})
 
-	return widget.NewCard("", "", container.NewVBox(title, meta, path, match, container.NewHBox(openButton, detailsButton, favoriteButton)))
+	var indexButton *widget.Button
+	if a.isSessionIndexed(result.FilePath) {
+		indexButton = widget.NewButton("Indexed ✓", nil)
+		indexButton.Disable()
+	} else {
+		indexButton = widget.NewButton("Index", func() {})
+		indexButton.OnTapped = func() {
+			indexButton.Disable()
+			indexButton.SetText("Preparing...")
+			go a.indexSessionFromResult(result.BackendName, result.FilePath, func(status string) {
+				indexButton.SetText(status)
+				if status == "Error" || status == "Cancelled" {
+					indexButton.Enable()
+					if status == "Cancelled" {
+						indexButton.SetText("Index")
+					}
+				}
+			})
+		}
+	}
+
+	return widget.NewCard("", "", container.NewVBox(title, meta, path, match, container.NewHBox(openButton, detailsButton, favoriteButton, indexButton)))
 }
 
 // resultDetailView shows a single result with the full match line and
@@ -418,6 +439,28 @@ func (a *App) resultDetailView(result search.Result) fyne.CanvasObject {
 			dialog.ShowInformation("Favorite", "Favorite saved.", a.main)
 		}),
 	)
+
+	var indexButton *widget.Button
+	if a.isSessionIndexed(result.FilePath) {
+		indexButton = widget.NewButton("Indexed ✓", nil)
+		indexButton.Disable()
+	} else {
+		indexButton = widget.NewButton("Index", func() {})
+		indexButton.OnTapped = func() {
+			indexButton.Disable()
+			indexButton.SetText("Preparing...")
+			go a.indexSessionFromResult(result.BackendName, result.FilePath, func(status string) {
+				indexButton.SetText(status)
+				if status == "Error" || status == "Cancelled" {
+					indexButton.Enable()
+					if status == "Cancelled" {
+						indexButton.SetText("Index")
+					}
+				}
+			})
+		}
+	}
+	actions.Add(indexButton)
 
 	return container.NewBorder(
 		container.NewVBox(header, title, meta, path, actions),
