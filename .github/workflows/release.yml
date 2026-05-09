@@ -53,15 +53,22 @@ jobs:
         #
         # On Windows, sqlite-vec's CGO #include "sqlite3.h" fails because
         # the header lives inside mattn/go-sqlite3's module cache, not on
-        # a system include path. We resolve the module dir and export
-        # CGO_CFLAGS inline — all in one step/shell to avoid cross-step
-        # env propagation issues on Windows runners.
+        # a system include path. We copy it into the sqlite-vec source dir
+        # before building. See the if-block below.
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            go mod download github.com/mattn/go-sqlite3
-            MODDIR=$(go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3 | sed 's|\\|/|g')
-            export CGO_CFLAGS="-I${MODDIR}"
-            echo "CGO_CFLAGS set to: $CGO_CFLAGS"
+            # sqlite-vec's CGO does #include "sqlite3.h" but the header
+            # lives in mattn/go-sqlite3's module cache. Go's CGO security
+            # restrictions ignore CGO_CFLAGS=-I for deps in the module cache.
+            # Workaround: copy the header into sqlite-vec's source dir so
+            # the compiler's relative-path search finds it.
+            go mod download github.com/mattn/go-sqlite3 github.com/asg017/sqlite-vec-go-bindings
+            SQLITE3_DIR=$(go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3)
+            VEC_CGO_DIR=$(go list -m -f '{{.Dir}}' github.com/asg017/sqlite-vec-go-bindings)/cgo
+            chmod -R u+w "$VEC_CGO_DIR"
+            cp "$SQLITE3_DIR/sqlite3.h" "$VEC_CGO_DIR/"
+            cp "$SQLITE3_DIR/sqlite3ext.h" "$VEC_CGO_DIR/" 2>/dev/null || true
+            echo "Copied sqlite3.h into $VEC_CGO_DIR"
           fi
           go build -trimpath -tags sqlite_fts5 -ldflags="-s -w" -o ${{ matrix.binary }} ./cmd/beddel-desk
 
