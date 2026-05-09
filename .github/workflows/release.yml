@@ -39,6 +39,17 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
 
+      - name: Resolve sqlite3.h for sqlite-vec CGO (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # sqlite-vec's CGO #include "sqlite3.h" fails on Windows because the
+        # header lives inside mattn/go-sqlite3's module cache. We resolve the
+        # path and export CGO_CFLAGS so the Build step picks it up.
+        run: |
+          go mod download github.com/mattn/go-sqlite3
+          $modDir = go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3
+          echo "CGO_CFLAGS=-I$modDir" >> $env:GITHUB_ENV
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
