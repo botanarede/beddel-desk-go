@@ -346,7 +346,7 @@ func (a *App) resultCard(result search.Result) fyne.CanvasObject {
 	meta.Wrapping = fyne.TextWrapWord
 	path := widget.NewLabel(result.FilePath)
 	path.Wrapping = fyne.TextWrapWord
-	match := widget.NewLabel(result.MatchLine)
+	match := widget.NewLabel(truncateText(result.MatchLine, 300))
 	match.Wrapping = fyne.TextWrapWord
 
 	openButton := widget.NewButton("Open", a.SafeAction(func() {
@@ -414,7 +414,7 @@ func (a *App) resultDetailView(result search.Result) fyne.CanvasObject {
 	path.Wrapping = fyne.TextWrapWord
 
 	match := widget.NewMultiLineEntry()
-	match.SetText(result.MatchLine)
+	match.SetText(truncateText(result.MatchLine, 2000))
 	match.Wrapping = fyne.TextWrapWord
 	match.Disable() // read-only view of the match content
 
@@ -806,4 +806,20 @@ func (a *App) SafeAction(fn func()) func() {
 		defer a.recoverPanic()
 		fn()
 	}
+}
+
+// truncateText safely truncates a string to a maximum number of runes
+// without allocating large temporary rune slices.
+func truncateText(text string, maxRunes int) string {
+	if len(text) <= maxRunes { // fast path if byte length is smaller than max runes
+		return text
+	}
+	count := 0
+	for i := range text {
+		if count >= maxRunes {
+			return text[:i] + "..."
+		}
+		count++
+	}
+	return text
 }
