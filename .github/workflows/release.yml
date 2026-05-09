@@ -39,19 +39,8 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
 
-      - name: Resolve sqlite3.h for sqlite-vec CGO (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        # sqlite-vec's CGO #include "sqlite3.h" fails on Windows because the
-        # header lives inside mattn/go-sqlite3's module cache. We resolve the
-        # path and export CGO_CFLAGS so the Build step picks it up.
-        run: |
-          go mod download github.com/mattn/go-sqlite3
-          MODDIR=$(go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3)
-          MODDIR=$(echo "$MODDIR" | sed 's|\\|/|g')
-          echo "CGO_CFLAGS=-I${MODDIR}" >> "$GITHUB_ENV"
-
       - name: Build
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -61,7 +50,20 @@ jobs:
         # via the asg017/sqlite-vec-go-bindings/cgo adapter). The ONNX
         # runtime and all-MiniLM-L6-v2 model are NOT embedded; they are
         # downloaded on first use. See docs/architecture/02-semantic-search.md.
-        run: go build -trimpath -tags sqlite_fts5 -ldflags="-s -w" -o ${{ matrix.binary }} ./cmd/beddel-desk
+        #
+        # On Windows, sqlite-vec's CGO #include "sqlite3.h" fails because
+        # the header lives inside mattn/go-sqlite3's module cache, not on
+        # a system include path. We resolve the module dir and export
+        # CGO_CFLAGS inline — all in one step/shell to avoid cross-step
+        # env propagation issues on Windows runners.
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            go mod download github.com/mattn/go-sqlite3
+            MODDIR=$(go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3 | sed 's|\\|/|g')
+            export CGO_CFLAGS="-I${MODDIR}"
+            echo "CGO_CFLAGS set to: $CGO_CFLAGS"
+          fi
+          go build -trimpath -tags sqlite_fts5 -ldflags="-s -w" -o ${{ matrix.binary }} ./cmd/beddel-desk
 
       - uses: actions/upload-artifact@v4
         with:
