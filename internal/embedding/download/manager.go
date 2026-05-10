@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -164,9 +165,27 @@ func (m *Manager) resolveRuntime(ctx context.Context, goos, goarch string, entry
 	if entry.SHA256 == PlaceholderSHA256 {
 		return "", "", fmt.Errorf("%w: %s", ErrPlaceholderChecksum, assetRuntime)
 	}
-	if err := m.downloadTo(ctx, string(assetRuntime), entry, cachePath, emitter); err != nil {
+
+	ext := strings.ToLower(filepath.Ext(entry.URL))
+	isArchive := ext == ".tgz" || ext == ".zip" || strings.HasSuffix(strings.ToLower(entry.URL), ".tar.gz")
+
+	destPath := cachePath
+	if isArchive {
+		destPath = cachePath + ".archive" + ext
+	}
+
+	if err := m.downloadTo(ctx, string(assetRuntime), entry, destPath, emitter); err != nil {
 		return "", "", err
 	}
+
+	if isArchive {
+		if err := extractSharedLib(destPath, cachePath); err != nil {
+			_ = os.Remove(destPath)
+			return "", "", fmt.Errorf("download: extract runtime: %w", err)
+		}
+		_ = os.Remove(destPath)
+	}
+
 	return cachePath, SourceDownloaded, nil
 }
 
