@@ -455,13 +455,15 @@ func (a *App) resultDetailView(result search.Result) fyne.CanvasObject {
 			indexButton.SetText("Preparing...")
 			a.SafeGo(func() {
 				a.indexSessionFromResult(result.BackendName, result.FilePath, func(status string) {
-					indexButton.SetText(status)
-					if status == "Error" || status == "Cancelled" {
-						indexButton.Enable()
-						if status == "Cancelled" {
-							indexButton.SetText("Index")
+					fyne.Do(func() {
+						indexButton.SetText(status)
+						if status == "Error" || status == "Cancelled" {
+							indexButton.Enable()
+							if status == "Cancelled" {
+								indexButton.SetText("Index")
+							}
 						}
-					}
+					})
 				})
 			})
 		})
