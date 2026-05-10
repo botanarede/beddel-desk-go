@@ -108,33 +108,33 @@ var DefaultManifest = Manifest{
 	Runtimes: map[PlatformKey]Entry{
 		{GOOS: "linux", GOARCH: "amd64"}: {
 			URL:     "https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-linux-x64-1.19.2.tgz",
-			SHA256:  PlaceholderSHA256, // TODO: fill at release time
-			Size:    37748736,          // TODO: fill at release time (~36 MB placeholder)
+			SHA256:  "eb00c64e0041f719913c4080e0fed7d9963dc3aa9b54664df6036d8308dbcd33",
+			Size:    6083273,
 			Version: "1.19.2",
 		},
 		{GOOS: "darwin", GOARCH: "arm64"}: {
 			URL:     "https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-osx-arm64-1.19.2.tgz",
-			SHA256:  PlaceholderSHA256, // TODO: fill at release time
-			Size:    18874368,          // TODO: fill at release time (~18 MB placeholder)
+			SHA256:  "370c49770e2e1f243e17c7b227bb7f4b3da793b847d02f38016dc0e46c30fbe1",
+			Size:    8110550,
 			Version: "1.19.2",
 		},
 		{GOOS: "windows", GOARCH: "amd64"}: {
 			URL:     "https://github.com/microsoft/onnxruntime/releases/download/v1.19.2/onnxruntime-win-x64-1.19.2.zip",
-			SHA256:  PlaceholderSHA256, // TODO: fill at release time
-			Size:    12582912,          // TODO: fill at release time (~12 MB placeholder)
+			SHA256:  "dc4f841e511977c0a4f02e5066c3d9a58427644010ab4f89b918614a1cd4c2b0",
+			Size:    64540734,
 			Version: "1.19.2",
 		},
 	},
 	Model: Entry{
 		URL:     "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",
-		SHA256:  PlaceholderSHA256, // TODO: fill at release time
-		Size:    94371840,          // TODO: fill at release time (~90 MB placeholder)
+		SHA256:  "6fd5d72fe4589f189f8ebc006442dbb529bb7ce38f8082112682524616046452",
+		Size:    90405214,
 		Version: "v1",
 	},
 	Tokenizer: Entry{
 		URL:     "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
-		SHA256:  PlaceholderSHA256, // TODO: fill at release time
-		Size:    716800,            // TODO: fill at release time (~700 KB placeholder)
+		SHA256:  "be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037",
+		Size:    466247,
 		Version: "v1",
 	},
 }
